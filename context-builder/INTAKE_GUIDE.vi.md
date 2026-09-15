@@ -8,7 +8,7 @@ Mục tiêu của intake là ghi lại dữ kiện đã xác nhận, không ph�
 
 1. Xác định repository đã clone, task và phase đầu tiên cần làm.
 2. Chọn hoặc tạo Profile Context cho framework, coding rule, lint, format của khách hàng.
-3. Thu thập một target frame Figma rõ ràng, raw artifact có scope đúng frame và ảnh tham chiếu lưu ở đường dẫn ổn định.
+3. Thu thập một target frame Figma rõ ràng, collected artifact và ảnh tham chiếu lưu ở đường dẫn ổn định. Normalizer sẽ tạo artifact scope đúng frame.
 4. Khai báo ý nghĩa viewport: desktop cố định, `min-width`, `max-width` hay responsive fluid. Kích thước frame Figma **không tự động** là `max-width` của web.
 5. Khai báo chính sách asset/icon và acceptance criteria có thể kiểm chứng.
 6. Chạy build và validate. Người dùng kiểm tra draft, sau đó mới approve.
@@ -59,7 +59,9 @@ Không đặt PAT, cookie, secrets, raw Figma payload hoặc source code khách 
 | `figmaUrl` | Có nếu có Figma | Link Figma nguồn. Chỉ là tham chiếu, không tự cấp quyền gọi API. |
 | `nodes` | Có | Danh sách node liên quan. Có thể nhiều node, nhưng không thay thế `targetFrame`. |
 | `targetFrame` | Có | Một frame/page chính xác cho scope hiện tại: `nodeId` và `name`. Đây là cơ sở đo layout. |
-| `rawArtifactPath` | Có | Đường dẫn artifact do Design Collector `import` hoặc `collect` tạo ra, nằm dưới `contexts`. Scope phải chứa đúng `targetFrame`. |
+| `collectedArtifactPath` | Có, nếu chưa có normalized artifact | Đường dẫn `figma_collected_artifact` do Design Collector `import` hoặc `collect` tạo ra, nằm dưới `contexts`. |
+| `normalizedArtifactPath` | Tùy chọn | Đường dẫn `normalized_design_artifact` đã được review. Nếu bỏ trống, `figma-context build` điều phối Normalizer từ collected artifact. |
+| `rawArtifactPath` | Legacy | Alias tương thích cho `collectedArtifactPath`; không dùng trong intake mới. |
 | `referenceImages` | Có | Ít nhất một ảnh visual lưu tại đường dẫn ổn định. Không dùng đường dẫn clipboard tạm. |
 
 Mỗi mục `referenceImages` nên có:
@@ -74,7 +76,7 @@ Mỗi mục `referenceImages` nên có:
 
 `measurementAuthority: "figma_frame"` nghĩa là ảnh dùng để so sánh trực quan; số đo chuẩn lấy từ frame Figma/contract, không lấy từ ảnh bị scale trong chat.
 
-Target frame, raw artifact và ảnh phải nói về cùng một màn hình/trạng thái. Nếu không khớp, task chỉ nên ở phase `analysis` cho tới khi evidence được làm rõ.
+Target frame, collected/normalized artifact và ảnh phải nói về cùng một màn hình/trạng thái. Nếu không khớp, task chỉ nên ở phase `analysis` cho tới khi evidence được làm rõ.
 
 ### `viewportContract`
 
@@ -175,7 +177,8 @@ Khuyến nghị ghi dạng object:
     "figmaUrl": "https://www.figma.com/design/FILE_KEY/Products?node-id=57-99",
     "nodes": ["57:99"],
     "targetFrame": { "nodeId": "57:99", "name": "Products" },
-    "rawArtifactPath": "D:\\agents\\figma-frontend-agent\\contexts\\tasks\\customer-a-pos\\POS-142\\evidence\\products.raw.json",
+    "collectedArtifactPath": "D:\\agents\\figma-frontend-agent\\contexts\\projects\\customer-a-pos\\figma\\products.collected.json",
+    "normalizedArtifactPath": null,
     "referenceImages": [
       {
         "path": "D:\\agents\\figma-frontend-agent\\contexts\\tasks\\customer-a-pos\\POS-142\\evidence\\products-pc.png",
@@ -201,7 +204,7 @@ Khuyến nghị ghi dạng object:
 }
 ```
 
-Thay tất cả giá trị ví dụ bằng dữ kiện thật trước khi build. Một file `intake.json` hợp lệ về cú pháp vẫn có thể bị chặn nếu raw artifact, target, viewport hoặc visual evidence không đủ cho phase cần làm.
+Thay tất cả giá trị ví dụ bằng dữ kiện thật trước khi build. Một file `intake.json` hợp lệ về cú pháp vẫn có thể bị chặn nếu collected/normalized artifact, target, viewport hoặc visual evidence không đủ cho phase cần làm.
 
 ## Lệnh và gate
 
@@ -215,7 +218,7 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js approve
 | Phase | Tối thiểu cần sẵn sàng |
 | --- | --- |
 | `analysis` | Source/profile/rule và scope task có thể xác định. |
-| `foundation` | Target frame, raw artifact đúng scope, viewport contract và ảnh visual ổn định. |
+| `foundation` | Target frame, normalized artifact đúng scope, viewport contract và ảnh visual ổn định. |
 | `implementation` | Toàn bộ gate của foundation, cùng asset policy và acceptance criteria đủ để không tự suy diễn. |
 | `review`, `qc` | Approved baseline còn fresh, evidence/screenshot/report của phase hiện tại theo project context index. |
 
@@ -223,7 +226,7 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js approve
 
 - [ ] `sourcePath` là repository đúng và truy cập được.
 - [ ] Profile phản ánh framework/rule/format hiện tại; không chứa secrets.
-- [ ] `targetFrame.nodeId`, raw artifact và ảnh tham chiếu là cùng màn hình/trạng thái.
+- [ ] `targetFrame.nodeId`, collected/normalized artifact và ảnh tham chiếu là cùng màn hình/trạng thái.
 - [ ] Ảnh evidence ở đường dẫn ổn định dưới `contexts`, không phải clipboard tạm.
 - [ ] Viewport contract mô tả ý nghĩa 1400 px; không suy `maxWidth` từ kích thước frame.
 - [ ] Icon/asset có nguồn rõ ràng hoặc task bị block chờ export/mapping.

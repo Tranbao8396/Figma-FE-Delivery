@@ -23,12 +23,12 @@ Context mode may write new implementation evidence, review findings, and QC repo
 
 Use `direct` mode when no approved context is supplied. Announce it, then follow `figma-frontend-delivery` and the applicable phase playbook.
 
-Direct mode may use local compilers and the Figma request planner. It can produce a draft context for human review, but it cannot create an approved context or claim that a draft is authoritative.
+Direct mode may use local compilers and the Figma request planner. If the user explicitly requests draft preparation, load `playbooks/figma-context-preparation/PLAYBOOK.md`. It can produce a draft context for human review, but it cannot create an approved context or claim that a draft is authoritative.
 
 ## Phase Mapping
 
 - `analysis`: use approved scope, source/rules artifacts, design references, and known gaps. Stop after planning when scope says analysis only.
-- `foundation` and `implementation`: require their phase gate, one target frame present in the raw artifact, an explicit viewport contract, and a local visual-comparison image. Never interpret a reference viewport as `max-width` unless the contract says so.
+- `foundation` and `implementation`: require their phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, and a local visual-comparison image. Never interpret a reference viewport as `max-width` unless the contract says so.
 - `review` and `qc`: require their phase gate plus evidence links and the task reports; never fetch Figma directly.
 
 ## Terminology

@@ -1,0 +1,9 @@
+{
+  "name": "figma-design-normalizer",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "normalize": "node bin/figma-normalize.js",
+    "test": "node test/design-normalizer.test.js"
+  }
+}

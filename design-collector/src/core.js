@@ -6,7 +6,6 @@ const path = require("path");
 const VERSION = "1.1.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const NODE_FIELDS = ["id", "name", "type", "visible", "opacity", "layoutMode", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "absoluteBoundingBox", "absoluteRenderBounds", "cornerRadius", "strokeWeight", "clipContent", "characters", "fontSize", "fontWeight", "fontName"];
-const VECTOR_TYPES = new Set(["VECTOR", "BOOLEAN_OPERATION", "STAR", "LINE", "ELLIPSE", "POLYGON"]);
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function readJson(filePath) { return JSON.parse(fs.readFileSync(filePath, "utf8")); }
@@ -37,7 +36,8 @@ function compactPaint(paint) {
   return result;
 }
 
-function sanitizeNode(node, options, diagnostics, depth = 0) {
+// Adapter projection is transport-safe only. Semantic pruning belongs to Design Normalizer.
+function adaptNode(node, options, diagnostics, depth = 0) {
   if (!node || typeof node !== "object") return null;
   const output = {};
   for (const field of NODE_FIELDS) if (node[field] !== undefined) output[field] = node[field];
@@ -48,7 +48,7 @@ function sanitizeNode(node, options, diagnostics, depth = 0) {
     if (children.length) diagnostics.truncatedDepthNodes += children.length;
     return output;
   }
-  const accepted = children.slice(0, options.maxChildren).map((child) => sanitizeNode(child, options, diagnostics, depth + 1)).filter(Boolean);
+  const accepted = children.slice(0, options.maxChildren).map((child) => adaptNode(child, options, diagnostics, depth + 1)).filter(Boolean);
   if (accepted.length) output.children = accepted;
   if (children.length > options.maxChildren) diagnostics.truncatedChildNodes += children.length - options.maxChildren;
   return output;
@@ -60,17 +60,6 @@ function nodeViewport(node) {
   return `${Math.round(box.width)}x${Math.round(box.height)}`;
 }
 
-function collectAssets(nodes, output = []) {
-  for (const node of nodes || []) {
-    if (VECTOR_TYPES.has(node.type)) {
-      const box = node.absoluteBoundingBox || node.absoluteRenderBounds || {};
-      output.push({ nodeId: node.id || null, name: node.name || null, kind: (box.width || 0) * (box.height || 0) <= 4096 ? "icon" : "illustration", status: "requires_export_or_library_mapping", source: "figma_node", width: box.width || null, height: box.height || null });
-    }
-    collectAssets(node.children, output);
-  }
-  return output;
-}
-
 function rawFromFigmaResponse(response, metadata, options = {}) {
   assert(response && response.nodes && typeof response.nodes === "object", "Figma response must contain nodes");
   const diagnostics = { requestedNodeCount: metadata.nodeIds.length, missingNodeIds: [], truncatedDepthNodes: 0, truncatedChildNodes: 0 };
@@ -78,7 +67,7 @@ function rawFromFigmaResponse(response, metadata, options = {}) {
   for (const nodeId of metadata.nodeIds) {
     const result = response.nodes[nodeId];
     if (!result || !result.document) { diagnostics.missingNodeIds.push(nodeId); continue; }
-    const document = sanitizeNode(result.document, options, diagnostics);
+    const document = adaptNode(result.document, options, diagnostics);
     pages.push({
       id: nodeId,
       title: document.name || nodeId,
@@ -88,7 +77,7 @@ function rawFromFigmaResponse(response, metadata, options = {}) {
   }
   return {
     schemaVersion: VERSION,
-    kind: "figma_raw_artifact",
+    kind: "figma_collected_artifact",
     meta: {
       sourceMode: metadata.sourceMode,
       capturedAt: metadata.capturedAt || new Date().toISOString(),
@@ -105,7 +94,6 @@ function rawFromFigmaResponse(response, metadata, options = {}) {
       }
     },
     pages,
-    assets: collectAssets(pages.flatMap((page) => page.frames.flatMap((frame) => frame.children))),
     designSystem: { colors: { confirmedVariables: {} }, typography: { localTextStyles: [] } },
     routingModel: { sharedShell: [] },
     ambiguities: diagnostics.missingNodeIds.map((nodeId) => ({ id: `missing-node-${nodeId}`, topic: `Figma node ${nodeId}`, impact: "Target node was unavailable", decision: "blocker" })),
@@ -125,16 +113,15 @@ function rawFromExistingArtifact(input, metadata, options = {}) {
       nodeId: frame.nodeId,
       state: frame.state || "default",
       viewport: frame.viewport || null,
-      children: (frame.children || []).map((node) => sanitizeNode(node, options, diagnostics)).filter(Boolean)
+      children: (frame.children || []).map((node) => adaptNode(node, options, diagnostics)).filter(Boolean)
     }))
   }));
   return {
     ...input,
     schemaVersion: VERSION,
-    kind: "figma_raw_artifact",
+    kind: "figma_collected_artifact",
     meta: { ...(input.meta || {}), sourceMode: metadata.sourceMode, capturedAt: metadata.capturedAt || new Date().toISOString(), collector: { version: VERSION, canonicalUrl: metadata.canonicalUrl || null, nodeIds: metadata.nodeIds || [], queryFingerprint: metadata.queryFingerprint || null, endpoint: null, requestCount: 0 } },
     pages,
-    assets: collectAssets(pages.flatMap((page) => page.frames.flatMap((frame) => frame.children))),
     collectorDiagnostics: diagnostics
   };
 }

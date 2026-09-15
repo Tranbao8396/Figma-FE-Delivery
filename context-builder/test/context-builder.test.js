@@ -78,4 +78,21 @@ test("implementation requires a target frame, viewport contract, and visual refe
   const result = buildContext(intake);
   const validation = validateContext(result.taskPath, { phase: "implementation" });
   assert.equal(validation.valid, true);
+  const context = validation.context;
+  const normalized = JSON.parse(fs.readFileSync(context.design.normalizedArtifactPath, "utf8"));
+  assert.equal(normalized.kind, "normalized_design_artifact");
+  assert.deepEqual(normalized.pages.map((page) => page.id), ["57:99"]);
+});
+
+test("validation detects a changed collected artifact after normalization", () => {
+  const { root, source } = fixture();
+  const collected = path.join(root, "products.collected.json");
+  const image = path.join(root, "product.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(collected, JSON.stringify({ kind: "figma_collected_artifact", pages: [{ id: "57:99", title: "Products", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  const result = buildContext({ project: { key: "collected-stale-test", sourcePath: source }, task: { id: "task-7", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-collected-stale", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, collectedArtifactPath: collected, referenceImages: [{ path: image, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false } });
+  const approved = approveContext(result.taskPath);
+  fs.writeFileSync(collected, JSON.stringify({ kind: "figma_collected_artifact", pages: [] }));
+  const status = validateContext(approved.approvedPath, { requireApproved: true, phase: "implementation" });
+  assert(status.errors.includes("collected_design_artifact_stale"));
 });

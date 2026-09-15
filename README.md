@@ -2,6 +2,10 @@
 
 Agent hỗ trợ triển khai giao diện web từ Figma theo hướng có bằng chứng, kiểm soát chi phí Figma MCP và giảm token lặp lại. Agent hỗ trợ HTML, CSS, JavaScript, SCSS và có thể tiếp nhận framework/rule riêng của từng khách hàng.
 
+Đọc [Guide vận hành end-to-end](GUIDE.md) để chạy toàn bộ flow từ intake đến implementation, review và QC.
+
+`GUIDE.md` là runbook vận hành: chỉ dùng khi con người hoặc Agent đang chuẩn bị/refresh context. Khi làm việc với approved context, Agent không nạp lại guide mà chỉ đọc project context index và artifact của phase hiện tại.
+
 ## Mục tiêu
 
 - Phân tích thiết kế trước khi triển khai.
@@ -14,6 +18,8 @@ Agent hỗ trợ triển khai giao diện web từ Figma theo hướng có bằn
 
 ```text
 Input dự án
+  -> Collector / Adapter
+  -> Normalizer / Filter
   -> Context Builder
   -> task-context.draft.json
   -> Người dùng kiểm tra
@@ -44,7 +50,9 @@ figma-frontend-agent/
   SKILL.md                  Root Skill của Codex
   playbooks/                Quy tắc theo phase của Agent
   context-builder/          CLI tạo, validate và approve context
-  design-collector/         CLI thu thập raw design artifact có kiểm soát
+  collectors/               Adapter đọc source/rules theo loại input
+  design-collector/         Adapter Figma REST/MCP/export có cache request
+  normalizers/              Filter scope, node rác và asset manifest
   hooks/                    Các compiler context cục bộ
   codex-hooks/              Lifecycle Hook tùy chọn, chỉ báo status
   contexts/
@@ -75,25 +83,36 @@ Chi tiết contract và checklist DoD nằm tại [context-builder/WORKFLOW.md](
 
 ## Design Collector
 
-Design Collector tạo file dùng cho `design.rawArtifactPath` trong `intake.json`. Có hai cách thu thập:
+Đọc [Guide Design Collector](design-collector/GUIDE.md) trước khi import hoặc gọi Figma REST. Guide giải thích trách nhiệm Collector, token, cache, giới hạn payload và cách đưa output vào intake.
+
+Design Collector tạo `figma_collected_artifact` dùng cho `design.collectedArtifactPath` trong `intake.json`. Có hai cách thu thập:
 
 ```powershell
 # Import JSON đã được lưu từ Figma MCP hoặc export khác. Không cần token.
 node D:\agents\figma-frontend-agent\design-collector\bin\figma-design.js import `
   --input D:\figma-mcp-response.json `
-  --out D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\raw-order.json `
+  --out D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\order.collected.json `
   --node-ids 123:456
 
 # Gọi Figma REST API cho đúng node. Token chỉ được đọc từ environment variable.
 $env:FIGMA_ACCESS_TOKEN = "..."
 node D:\agents\figma-frontend-agent\design-collector\bin\figma-design.js collect `
   --figma-url "https://www.figma.com/design/<file-key>/<name>?node-id=123-456" `
-  --out D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\raw-order.json
+  --out D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\order.collected.json
 ```
 
 Collector chỉ lấy node được chỉ định, không lấy toàn bộ file, không lưu token và không tự retry. Nếu file output có cùng Figma file/node/depth, Collector dùng cache và không gọi API. Muốn gọi lại phải thêm `--refresh` một cách chủ động.
 
-Raw artifact được lọc trước khi lưu: chỉ giữ node/layout/text/style cần cho code, bỏ plugin data, payload API dư, vector path và giới hạn depth/children. Collector tạo asset manifest cho vector/icon; icon phải được export từ Figma hoặc map tới approved icon library, không được vẽ gần đúng bằng CSS. Context Builder tiếp tục lọc node ẩn, node design-only, wrapper dư và vector nháp khi tạo layout context.
+Collector chỉ thực hiện transport-safe projection: bỏ plugin data/vector path, giới hạn depth/children và không lưu secret. Nó không quyết định node nào là UI. Design Normalizer chọn đúng `targetFrame`, bỏ node ẩn/design-only/non-UI, tóm tắt vector thành asset manifest và tạo `normalized_design_artifact`. Context Builder dùng artifact đã chuẩn hóa để tạo design index/layout context; không tự lọc tree.
+
+```powershell
+node D:\agents\figma-frontend-agent\normalizers\design-normalizer\bin\figma-normalize.js `
+  --input D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\order.collected.json `
+  --out D:\agents\figma-frontend-agent\contexts\projects\customer-a-pos\figma\order.normalized.json `
+  --target-node-id 123:456
+```
+
+`figma-context build` tự điều phối Normalizer khi intake chỉ có `collectedArtifactPath`. Có thể đưa `normalizedArtifactPath` đã tạo sẵn để Builder chỉ kiểm tra và ghép reference.
 
 ## Context Levels
 
@@ -158,7 +177,7 @@ Mỗi task implementation phải có đúng một `targetFrame`, một ảnh đ�
 
 `referenceViewport` là kích thước frame để đo. Nó không tự có nghĩa là `max-width`. Các giá trị hợp lệ của `layoutBehavior` là `min_width`, `fixed_canvas`, `fluid`, hoặc `max_width`; Agent phải dùng đúng giá trị đã khai báo.
 
-Context Builder chỉ cho phép Foundation/Implementation khi target frame có trong raw artifact, viewport contract hợp lệ và ảnh `visual_comparison` tồn tại. Layout context giữ geometry `x/y/width/height` của node để Agent không phải tự đoán padding, gap hoặc margin.
+Context Builder chỉ cho phép Foundation/Implementation khi target frame có trong normalized artifact, viewport contract hợp lệ và ảnh `visual_comparison` tồn tại. Layout context giữ geometry `x/y/width/height` của node để Agent không phải tự đoán padding, gap hoặc margin.
 
 Sau khi baseline được approve, không cần build lại design context chỉ để đổi từ Implementation sang Review/QC. Gửi cùng approved context với phase mới; CLI status đọc phase gate hiện tại từ context index:
 
@@ -183,8 +202,10 @@ Không gọi Figma MCP khi mở chat, đổi phase, review/QC, hoặc chỉ đ�
 
 ## Vai Trò Các Thành Phần
 
-- **Context Builder**: CLI chủ động sinh/kiểm tra/approve context.
-- **Compiler Hook**: chương trình cục bộ, xác định, tạo context nhỏ gọn.
+- **Collector / Adapter**: đọc Figma/source/rules đúng theo loại input, không suy luận UI.
+- **Normalizer / Filter**: chọn scope, bỏ dữ liệu rác và tạo artifact nhỏ gọn cho code.
+- **Context Builder**: CLI chủ động ghép fact đã chuẩn hóa, kiểm tra/approve context.
+- **Compiler Hook**: chương trình cục bộ, xác định, tạo index/layout/source/rules context nhỏ gọn.
 - **Skill/Playbook**: policy để Agent quyết định cách Analysis, Implement, Review và QC.
 - **Codex Lifecycle Hook**: tùy chọn, chỉ báo status; không phải Context Builder.
 

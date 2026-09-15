@@ -12,7 +12,7 @@ This is the sole Codex-discovered Skill for this agent. Route work through the p
 - First determine the intake mode with `playbooks/figma-context-task-intake/PLAYBOOK.md`. State `context` or `direct` before beginning phase work.
 - In `context` mode, require a user-supplied `task-context.approved.json` path. Validate its approved status, checksum, references, freshness, and requested phase before loading an artifact or calling a tool. Do not build, approve, replace, or silently bypass context.
 - In `direct` mode, follow the existing evidence intake flow. It may produce a draft context for a later human-reviewed handoff, but it does not create an approved context.
-- When direct-mode work includes creating an intake draft, read `context-builder/INTAKE_GUIDE.vi.md` first. Treat it as the intake contract: record confirmed facts, preserve unknowns, and do not infer a target frame, viewport behavior, dimensions, or icon source.
+- When the user explicitly asks to create or refresh a context draft, read `playbooks/figma-context-preparation/PLAYBOOK.md`. Do not load root `GUIDE.md` for normal implementation, review, QC, or approved-context work.
 - Intake, design cache and MCP budget: read `playbooks/figma-design-intake-cache/PLAYBOOK.md`.
 - Analysis, estimate and task manifest: read `playbooks/figma-frontend-analysis/PLAYBOOK.md`.
 - Foundation, page implementation, review or QC: read only the applicable playbook in `playbooks/`.

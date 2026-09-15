@@ -9,7 +9,7 @@ function number(name, fallback) { const raw = value(name); return raw ? Number(r
 async function main() {
   const command = process.argv[2];
   const out = value("out");
-  if (!out || !["collect", "import"].includes(command)) throw new Error("Usage: figma-design <collect|import> --out <raw-artifact.json> [options]");
+  if (!out || !["collect", "import"].includes(command)) throw new Error("Usage: figma-design <collect|import> --out <collected-artifact.json> [options]");
   const options = { outPath: path.resolve(out), figmaUrl: value("figma-url"), nodeIds: values("node-ids"), depth: number("depth", 10), maxDepth: number("max-depth", 10), maxChildren: number("max-children", 100), refresh: process.argv.includes("--refresh"), tokenEnv: value("token-env") || "FIGMA_ACCESS_TOKEN", version: value("version") };
   if (!Number.isInteger(options.depth) || options.depth < 1) throw new Error("--depth must be a positive integer");
   if (!Number.isInteger(options.maxDepth) || options.maxDepth < 1) throw new Error("--max-depth must be a positive integer");

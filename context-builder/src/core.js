@@ -7,11 +7,13 @@ const { buildRulesContext } = require("../../hooks/rules-context-hook/src/hook")
 const { buildDesignIndex } = require("../../hooks/design-index-hook/src/hook");
 const { buildLayoutContext } = require("../../hooks/figma-layout-context-hook/src/hook");
 const { buildProjectContextIndex } = require("../../hooks/project-context-index-hook/src/hook");
+const { normalizeFile } = require("../../normalizers/design-normalizer/src/core");
+const { collectSourceInventory } = require("../../collectors/source-adapter/src/core");
+const { collectRulesInput } = require("../../collectors/rules-adapter/src/core");
 
 const VERSION = "1.1.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const PHASES = ["analysis", "foundation", "implementation", "review", "qc"];
-const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", "coverage", ".next"]);
 const SECRET_KEY = /^(?:password|secret|token|cookie|authorization|personalAccessToken|figmaPat)$/i;
 
 function stableSerialize(value) {
@@ -55,32 +57,6 @@ function assertWithinContextRoot(candidate) {
   assert(isWithin(CONTEXT_ROOT, candidate), `Path must stay under ${CONTEXT_ROOT}: ${candidate}`);
 }
 
-function sourceInventory(root) {
-  const files = [];
-  const fileFacts = [];
-  function walk(current) {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile()) {
-        const relative = path.relative(root, full).replace(/\\/g, "/");
-        const stat = fs.statSync(full);
-        files.push(relative);
-        fileFacts.push({ path: relative, size: stat.size, modifiedMs: Math.trunc(stat.mtimeMs) });
-      }
-    }
-  }
-  walk(root);
-  const packagePath = path.join(root, "package.json");
-  return {
-    files,
-    fileFacts,
-    packageJson: fs.existsSync(packagePath) ? readJson(packagePath) : {},
-    packageManager: fs.existsSync(path.join(root, "pnpm-lock.yaml")) ? "pnpm" : fs.existsSync(path.join(root, "yarn.lock")) ? "yarn" : fs.existsSync(path.join(root, "package-lock.json")) ? "npm" : "unknown"
-  };
-}
-
 function profilePath(intake) {
   const customer = normalizeKey(intake.profile.customer, "profile.customer");
   const name = normalizeKey(intake.profile.name, "profile.name");
@@ -112,11 +88,11 @@ function requireIntake(intake) {
   }
 }
 
-function visualReadiness(intake, raw) {
+function visualReadiness(intake, normalizedDesign) {
   const target = intake.design && intake.design.targetFrame || null;
   const viewport = intake.viewportContract || null;
   const references = (intake.design && intake.design.referenceImages || []).map((item) => ({ path: item && item.path || null, role: item && item.role || "unknown", measurementAuthority: item && item.measurementAuthority || "unknown", available: Boolean(item && item.path && fs.existsSync(item.path)) }));
-  const targetFrameConfirmed = Boolean(target && target.nodeId && raw && Array.isArray(raw.pages) && raw.pages.some((page) => page.id === target.nodeId));
+  const targetFrameConfirmed = Boolean(target && target.nodeId && normalizedDesign && Array.isArray(normalizedDesign.pages) && normalizedDesign.pages.some((page) => page.id === target.nodeId));
   const viewportContractConfirmed = Boolean(viewport && viewport.referenceViewport && Number.isFinite(viewport.referenceViewport.width) && Number.isFinite(viewport.referenceViewport.height) && ["pc_only", "responsive"].includes(viewport.deviceScope) && ["min_width", "fixed_canvas", "fluid", "max_width"].includes(viewport.layoutBehavior) && (viewport.layoutBehavior !== "min_width" || Number.isFinite(viewport.minWidth)));
   return { targetFrame: target ? { nodeId: target.nodeId || null, name: target.name || null, presentInRawArtifact: targetFrameConfirmed } : null, viewportContract: viewport, referenceImages: references, readiness: { targetFrameConfirmed, viewportContractConfirmed, visualReferenceConfirmed: references.some((item) => item.role === "visual_comparison" && item.available) } };
 }
@@ -163,46 +139,70 @@ function buildContext(intake) {
   if (profile !== existingProfile) writeJson(profileOutput, profile);
 
   const sourceOutput = path.join(projectRoot, "source", "source-context.json");
-  const source = cacheDocument(sourceOutput, (previous) => buildSourceContext(sourceInventory(path.resolve(intake.project.sourcePath)), { repository: path.resolve(intake.project.sourcePath), previousContext: previous }));
+  const source = cacheDocument(sourceOutput, (previous) => buildSourceContext(collectSourceInventory(path.resolve(intake.project.sourcePath)), { repository: path.resolve(intake.project.sourcePath), previousContext: previous }));
   const rulesOutput = path.join(projectRoot, "rules", "rules-context.json");
-  const rules = cacheDocument(rulesOutput, (previous) => buildRulesContext({ rules: [...profile.codingRules, ...profile.lintRules, ...profile.formatRules] }, { previousContext: previous }));
+  const rules = cacheDocument(rulesOutput, (previous) => buildRulesContext(collectRulesInput(profile), { previousContext: previous }));
 
+  const taskDesignDirectory = path.join("figma", normalizeKey(intake.task.id, "task.id"));
+  const normalizedDesignRelative = path.join(taskDesignDirectory, "normalized-design.json");
+  const designIndexRelative = path.join(taskDesignDirectory, "design-index.json");
+  const layoutRelative = path.join(taskDesignDirectory, "layout-context.json");
   const artifacts = [
     { id: "source", kind: "source_context", path: "source/source-context.json", phases: ["analysis", "foundation", "implementation"] },
     { id: "rules", kind: "rules_context", path: "rules/rules-context.json", phases: ["analysis", "implementation", "review"] },
-    { id: "design-index", kind: "design_index", path: "figma/design-index.json", phases: ["implementation", "qc"] },
-    { id: "layout", kind: "figma_layout_context", path: "figma/layout-context.json", phases: ["foundation", "implementation", "review", "qc"] },
+    { id: "normalized-design", kind: "normalized_design_artifact", path: normalizedDesignRelative, phases: ["foundation", "implementation", "review", "qc"] },
+    { id: "design-index", kind: "design_index", path: designIndexRelative, phases: ["implementation", "qc"] },
+    { id: "layout", kind: "figma_layout_context", path: layoutRelative, phases: ["foundation", "implementation", "review", "qc"] },
     { id: "evidence-links", kind: "evidence_links", path: "evidence/evidence-links.json", phases: ["review", "qc"] }
   ];
-  const rawArtifact = intake.design && intake.design.rawArtifactPath;
+  const declaredNormalizedArtifact = intake.design && intake.design.normalizedArtifactPath;
+  const collectedArtifact = intake.design && (intake.design.collectedArtifactPath || intake.design.rawArtifactPath);
   const buildWarnings = [];
-  let rawDesign = null;
-  if (rawArtifact && fs.existsSync(rawArtifact)) {
+  let normalizedDesign = null;
+  let normalizedArtifactPath = null;
+  if (declaredNormalizedArtifact && fs.existsSync(declaredNormalizedArtifact)) {
     try {
-      const raw = readJson(rawArtifact);
-      rawDesign = raw;
-      const designOutput = path.join(projectRoot, "figma", "design-index.json");
-      cacheDocument(designOutput, (previous) => buildDesignIndex(raw, { rawArtifact: path.resolve(rawArtifact), previousContext: previous }));
-      const layoutOutput = path.join(projectRoot, "figma", "layout-context.json");
+      normalizedDesign = readJson(declaredNormalizedArtifact);
+      normalizedArtifactPath = path.resolve(declaredNormalizedArtifact);
+      if (normalizedDesign.kind !== "normalized_design_artifact") throw new Error("Declared normalizedArtifactPath is not a normalized_design_artifact");
+    } catch (error) {
+      buildWarnings.push({ code: "normalized_design_artifact_invalid", message: error.message });
+    }
+  } else if (declaredNormalizedArtifact) {
+    buildWarnings.push({ code: "normalized_design_artifact_missing", message: `Normalized design artifact is unavailable: ${declaredNormalizedArtifact}` });
+  }
+  if (!normalizedDesign && collectedArtifact && fs.existsSync(collectedArtifact)) {
+    try {
       const targetNodeId = intake.design && intake.design.targetFrame && intake.design.targetFrame.nodeId;
-      const selectedPages = targetNodeId ? raw.pages.filter((page) => page.id === targetNodeId) : raw.pages;
-      if (targetNodeId && selectedPages.length === 0) buildWarnings.push({ code: "target_frame_missing_from_raw_artifact", message: `Target frame is absent from raw design artifact: ${targetNodeId}` });
+      const normalizedOutput = path.join(projectRoot, normalizedDesignRelative);
+      const normalized = normalizeFile(collectedArtifact, normalizedOutput, { targetNodeId });
+      normalizedDesign = normalized.artifact;
+      normalizedArtifactPath = normalized.outPath;
+    } catch (error) {
+      buildWarnings.push({ code: "design_normalization_failed", message: error.message });
+    }
+  } else if (!normalizedDesign && collectedArtifact) {
+    buildWarnings.push({ code: "collected_design_artifact_missing", message: `Collected design artifact is unavailable: ${collectedArtifact}` });
+  }
+  if (normalizedDesign) {
+    try {
+      const designOutput = path.join(projectRoot, designIndexRelative);
+      cacheDocument(designOutput, (previous) => buildDesignIndex(normalizedDesign, { rawArtifact: normalizedArtifactPath, previousContext: previous }));
+      const layoutOutput = path.join(projectRoot, layoutRelative);
       const layoutIntake = {
         scope: {
           mode: "static_layout",
-          targets: selectedPages.map((page) => ({ screenId: page.id })),
+          targets: normalizedDesign.pages.map((page) => ({ screenId: page.id })),
           viewportPolicy: "design_frames_only"
         },
         framework: profile.framework || {},
         codingRules: rules.context.rules,
         sourceConventions: [source.context.conventions]
       };
-      cacheDocument(layoutOutput, (previous) => buildLayoutContext(raw, layoutIntake, { rawArtifact: path.resolve(rawArtifact), previousContext: previous }));
+      cacheDocument(layoutOutput, (previous) => buildLayoutContext(normalizedDesign, layoutIntake, { rawArtifact: normalizedArtifactPath, previousContext: previous }));
     } catch (error) {
-      buildWarnings.push({ code: "design_artifact_invalid", message: error.message });
+      buildWarnings.push({ code: "normalized_design_compilation_failed", message: error.message });
     }
-  } else if (rawArtifact) {
-    buildWarnings.push({ code: "design_artifact_missing", message: `Raw design artifact is unavailable: ${rawArtifact}` });
   }
 
   const projectContextOutput = path.join(projectRoot, "project-context.json");
@@ -230,7 +230,7 @@ function buildContext(intake) {
   const projectIndex = cacheDocument(indexOutput, (previous) => buildProjectContextIndex(indexInput, { artifactDocuments: documents, previousContext: previous }));
 
   const taskDraftOutput = path.join(taskRoot, "task-context.draft.json");
-  const visual = visualReadiness(intake, rawDesign);
+  const visual = visualReadiness(intake, normalizedDesign);
   const taskPayload = {
     schemaVersion: VERSION,
     kind: "task_context",
@@ -245,8 +245,12 @@ function buildContext(intake) {
       nodes: intake.design && intake.design.nodes || [],
       targetFrame: visual.targetFrame,
       referenceImages: visual.referenceImages,
-      rawArtifactPath: rawArtifact ? path.resolve(rawArtifact) : null,
-      rawArtifactFingerprint: rawArtifact && fs.existsSync(rawArtifact) ? documentHash(readJson(rawArtifact)) : null
+      collectedArtifactPath: collectedArtifact ? path.resolve(collectedArtifact) : null,
+      collectedArtifactFingerprint: collectedArtifact && fs.existsSync(collectedArtifact) ? documentHash(readJson(collectedArtifact)) : null,
+      normalizedArtifactPath,
+      normalizedArtifactFingerprint: normalizedArtifactPath && fs.existsSync(normalizedArtifactPath) ? documentHash(readJson(normalizedArtifactPath)) : null,
+      rawArtifactPath: collectedArtifact ? path.resolve(collectedArtifact) : null,
+      rawArtifactFingerprint: collectedArtifact && fs.existsSync(collectedArtifact) ? documentHash(readJson(collectedArtifact)) : null
     },
     viewportContract: visual.viewportContract,
     assetPolicy: intake.assetPolicy || { icons: "figma_asset_or_approved_library_only", forbidCssRecreationWithoutEvidence: true },
@@ -279,13 +283,19 @@ function validationErrors(context, contextPath, options = {}) {
   if (context.projectRef && context.projectRef.path && fs.existsSync(context.projectRef.path)) {
     const project = readJson(context.projectRef.path);
     if (project.project && project.project.sourcePath && fs.existsSync(project.project.sourcePath)) {
-      const currentSource = buildSourceContext(sourceInventory(project.project.sourcePath), { repository: project.project.sourcePath });
+      const currentSource = buildSourceContext(collectSourceInventory(project.project.sourcePath), { repository: project.project.sourcePath });
       if (currentSource.context.provenance.inputFingerprint !== context.projectRef.sourceFingerprint) errors.push("source_context_stale");
     } else errors.push("source_repository_missing");
   }
-  if (context.design && context.design.rawArtifactPath) {
-    if (!fs.existsSync(context.design.rawArtifactPath)) errors.push("design_artifact_missing");
-    else if (documentHash(readJson(context.design.rawArtifactPath)) !== context.design.rawArtifactFingerprint) errors.push("design_artifact_stale");
+  if (context.design && (context.design.normalizedArtifactPath || context.design.rawArtifactPath)) {
+    const artifactPath = context.design.normalizedArtifactPath || context.design.rawArtifactPath;
+    const artifactFingerprint = context.design.normalizedArtifactFingerprint || context.design.rawArtifactFingerprint;
+    if (!fs.existsSync(artifactPath)) errors.push("design_artifact_missing");
+    else if (documentHash(readJson(artifactPath)) !== artifactFingerprint) errors.push("design_artifact_stale");
+  }
+  if (context.design && context.design.collectedArtifactPath && context.design.collectedArtifactFingerprint) {
+    if (!fs.existsSync(context.design.collectedArtifactPath)) errors.push("collected_design_artifact_missing");
+    else if (documentHash(readJson(context.design.collectedArtifactPath)) !== context.design.collectedArtifactFingerprint) errors.push("collected_design_artifact_stale");
   }
   if (context.diagnostics && context.diagnostics.secretKeyPaths && context.diagnostics.secretKeyPaths.length) errors.push("intake_contains_sensitive_key");
   const requested = options.phase || context.task && context.task.requestedPhase;
@@ -332,4 +342,4 @@ function approveContext(draftPath) {
   return { approvedPath, checksumPath: `${approvedPath}.sha256`, hash: documentHash(approved) };
 }
 
-module.exports = { CONTEXT_ROOT, VERSION, buildContext, validateContext, approveContext, documentHash, sourceInventory };
+module.exports = { CONTEXT_ROOT, VERSION, buildContext, validateContext, approveContext, documentHash, sourceInventory: collectSourceInventory };

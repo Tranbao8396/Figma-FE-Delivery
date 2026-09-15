@@ -13,20 +13,20 @@ test("parses a Figma URL and normalizes node-id", () => {
   assert.deepEqual(result.nodeIds, ["12:34"]);
 });
 
-test("converts only requested Figma nodes into a bounded raw artifact", () => {
+test("adapts only requested Figma nodes into a bounded collected artifact", () => {
   const response = { lastModified: "2026-01-01T00:00:00Z", nodes: { "1:2": { document: { id: "1:2", name: "Checkout", type: "FRAME", absoluteBoundingBox: { width: 1440, height: 900 }, pluginData: { ignored: true }, children: [{ id: "1:3", name: "Pay", type: "TEXT", characters: "Pay now", children: [] }] } }, "9:9": null } };
   const artifact = rawFromFigmaResponse(response, { sourceMode: "figma_rest", fileKey: "file", nodeIds: ["1:2", "9:9"], requestCount: 1 }, { maxDepth: 4, maxChildren: 10 });
   assert.equal(artifact.pages.length, 1);
   assert.equal(artifact.pages[0].frames[0].viewport, "1440x900");
   assert.equal(artifact.pages[0].frames[0].children[0].pluginData, undefined);
   assert.deepEqual(artifact.collectorDiagnostics.missingNodeIds, ["9:9"]);
-  assert.equal(artifact.assets.length, 0);
+  assert.equal(artifact.kind, "figma_collected_artifact");
 });
 
-test("adds vector nodes to the asset manifest instead of keeping vector paths", () => {
+test("keeps vector identity but removes vector paths in the transport-safe projection", () => {
   const artifact = rawFromFigmaResponse({ nodes: { "5:6": { document: { id: "5:6", name: "Export", type: "VECTOR", absoluteBoundingBox: { width: 16, height: 16 }, vectorPaths: [{ data: "discarded" }] } } } }, { sourceMode: "figma_rest", fileKey: "file", nodeIds: ["5:6"], requestCount: 1 }, { maxDepth: 4, maxChildren: 10 });
-  assert.deepEqual(artifact.assets[0], { nodeId: "5:6", name: "Export", kind: "icon", status: "requires_export_or_library_mapping", source: "figma_node", width: 16, height: 16 });
   assert.equal(artifact.pages[0].frames[0].children[0].vectorPaths, undefined);
+  assert.equal(artifact.pages[0].frames[0].children[0].type, "VECTOR");
 });
 
 test("imports local JSON without requiring a token", () => {

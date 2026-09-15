@@ -28,6 +28,8 @@
     "figmaUrl": "https://www.figma.com/design/example",
     "nodes": ["123:456"],
     "targetFrame": { "nodeId": "123:456", "name": "POS order screen" },
+    "collectedArtifactPath": null,
+    "normalizedArtifactPath": null,
     "rawArtifactPath": null,
     "referenceImages": [{ "path": "D:\\evidence\\pos-order-screen.png", "role": "visual_comparison", "measurementAuthority": "figma_frame" }]
   },

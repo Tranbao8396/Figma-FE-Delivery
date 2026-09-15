@@ -12,9 +12,9 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js approve
 node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js status --context <task-context.approved.json>
 ```
 
-`build` reads local source/rules and locally supplied design artifacts only. It never calls Figma web, Figma MCP, or a Figma API. A missing raw design artifact leaves dependent phases blocked instead of attempting an external refresh.
+`build` reads local source/rules and locally supplied design artifacts only. It never calls Figma web, Figma MCP, or a Figma API. A missing collected/normalized design artifact leaves dependent phases blocked instead of attempting an external refresh.
 
-Use `design-collector/bin/figma-design.js import` to convert saved Figma MCP/export JSON into a raw design artifact, or its explicit `collect` command for a node-targeted Figma REST request. Put the resulting output path in `design.rawArtifactPath` before calling `build`.
+Use `design-collector/bin/figma-design.js import` to convert saved Figma MCP/export JSON into a `figma_collected_artifact`, or its explicit `collect` command for a node-targeted Figma REST request. Put the resulting path in `design.collectedArtifactPath` before calling `build`; Builder then invokes Design Normalizer. Alternatively, supply a reviewed `design.normalizedArtifactPath`. `rawArtifactPath` remains a legacy alias for older intake files.
 
 ## Approval Contract
 
