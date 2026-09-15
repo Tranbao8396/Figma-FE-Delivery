@@ -1,0 +1,45 @@
+{
+  "project": {
+    "key": "customer-a-pos",
+    "sourcePath": "D:\\workspace\\customer-a-pos"
+  },
+  "task": {
+    "id": "POS-142",
+    "title": "Implement POS order screen",
+    "requestedPhase": "analysis",
+    "allowedPhases": ["analysis", "foundation", "implementation", "review", "qc"]
+  },
+  "profile": {
+    "customer": "customer-a",
+    "name": "frontend-standard",
+    "version": "1",
+    "framework": {
+      "name": "react",
+      "majorVersion": "19"
+    },
+    "codingRules": [
+      "Use semantic HTML.",
+      "Use the repository formatter and lint configuration."
+    ],
+    "lintRules": [],
+    "formatRules": []
+  },
+  "design": {
+    "figmaUrl": "https://www.figma.com/design/example",
+    "nodes": ["123:456"],
+    "targetFrame": { "nodeId": "123:456", "name": "POS order screen" },
+    "rawArtifactPath": null,
+    "referenceImages": [{ "path": "D:\\evidence\\pos-order-screen.png", "role": "visual_comparison", "measurementAuthority": "figma_frame" }]
+  },
+  "viewportContract": {
+    "referenceViewport": { "width": 1400, "height": 887 },
+    "deviceScope": "pc_only",
+    "layoutBehavior": "min_width",
+    "minWidth": 1400,
+    "maxWidth": null,
+    "interpolationAllowed": false
+  },
+  "assetPolicy": { "icons": "figma_asset_or_approved_library_only", "forbidCssRecreationWithoutEvidence": true },
+  "acceptanceCriteria": [],
+  "assumptions": []
+}

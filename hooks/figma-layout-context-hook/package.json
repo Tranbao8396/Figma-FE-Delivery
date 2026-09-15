@@ -1,0 +1,13 @@
+{
+  "name": "figma-layout-context-hook",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Compile compact static-layout agent context from a Figma design JSON artifact.",
+  "scripts": {
+    "test": "node test/hook.test.js",
+    "build-context": "node src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

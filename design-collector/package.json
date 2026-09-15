@@ -1,0 +1,15 @@
+{
+  "name": "figma-design-collector",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Controlled Figma design evidence collector for the Figma Frontend Agent",
+  "bin": {
+    "figma-design": "bin/figma-design.js"
+  },
+  "scripts": {
+    "test": "node test/design-collector.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

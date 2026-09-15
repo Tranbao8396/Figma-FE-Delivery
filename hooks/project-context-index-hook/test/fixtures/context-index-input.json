@@ -1,0 +1,17 @@
+{
+  "project": { "key": "cli-fixture" },
+  "artifacts": [
+    {
+      "id": "source",
+      "kind": "source_context",
+      "path": "source-context.json",
+      "phases": ["analysis"]
+    },
+    {
+      "id": "rules",
+      "kind": "rules_context",
+      "path": "rules-context.json",
+      "phases": ["analysis"]
+    }
+  ]
+}

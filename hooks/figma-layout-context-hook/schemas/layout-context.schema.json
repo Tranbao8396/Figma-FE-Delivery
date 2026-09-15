@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/figma-layout-context/v1.2.json",
+  "title": "Figma layout context",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "provenance", "scope", "engineering", "design", "boundaries", "retrieval", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": "1.2.0" },
+    "kind": { "const": "figma_layout_context" },
+    "provenance": { "type": "object" },
+    "scope": { "type": "object" },
+    "engineering": { "type": "object" },
+    "design": { "type": "object" },
+    "boundaries": { "type": "object" },
+    "retrieval": { "type": "object" },
+    "diagnostics": { "type": "object" }
+  },
+  "additionalProperties": false
+}

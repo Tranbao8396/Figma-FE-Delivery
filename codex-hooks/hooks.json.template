@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/agents/figma-frontend-agent/codex-hooks/context-status-dispatcher.js session_start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node D:/agents/figma-frontend-agent/codex-hooks/context-status-dispatcher.js stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

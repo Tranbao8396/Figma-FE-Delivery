@@ -1,0 +1,1 @@
+{"name":"design-index-hook","version":"1.0.0","private":true,"scripts":{"test":"node test/hook.test.js","build-context":"node src/cli.js"},"engines":{"node":">=18"}}

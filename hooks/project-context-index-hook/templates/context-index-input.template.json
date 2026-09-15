@@ -1,0 +1,38 @@
+{
+  "project": {
+    "key": "<project-key>",
+    "sourceRepository": "<absolute-customer-repository-path>"
+  },
+  "artifacts": [
+    {
+      "id": "source",
+      "kind": "source_context",
+      "path": "source/source-context.json",
+      "phases": ["analysis", "foundation", "implementation"]
+    },
+    {
+      "id": "rules",
+      "kind": "rules_context",
+      "path": "rules/rules-context.json",
+      "phases": ["analysis", "implementation", "review"]
+    },
+    {
+      "id": "design-index",
+      "kind": "design_index",
+      "path": "figma/design-index.json",
+      "phases": ["analysis", "implementation", "qc"]
+    },
+    {
+      "id": "layout",
+      "kind": "figma_layout_context",
+      "path": "figma/layout-context.json",
+      "phases": ["analysis", "foundation", "implementation", "review", "qc"]
+    },
+    {
+      "id": "evidence-links",
+      "kind": "evidence_links",
+      "path": "evidence/evidence-links.json",
+      "phases": ["review", "qc"]
+    }
+  ]
+}

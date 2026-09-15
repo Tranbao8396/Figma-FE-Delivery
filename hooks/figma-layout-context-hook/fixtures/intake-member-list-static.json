@@ -1,0 +1,32 @@
+{
+  "scope": {
+    "mode": "static_layout",
+    "targets": [
+      {
+        "screenId": "member-list",
+        "states": ["card_list", "responsive_1440", "responsive_1024"]
+      }
+    ],
+    "viewportPolicy": "design_frames_only"
+  },
+  "framework": {
+    "name": "html-css-js",
+    "styling": "scss",
+    "language": "javascript"
+  },
+  "codingRules": [
+    {
+      "id": "semantic-html",
+      "directive": "Use semantic HTML landmarks and one page h1.",
+      "priority": "required"
+    },
+    {
+      "id": "scss-bem",
+      "directive": "Use SCSS with BEM-oriented component naming.",
+      "priority": "required"
+    }
+  ],
+  "filterPolicy": {
+    "maxContentSamples": 3
+  }
+}
