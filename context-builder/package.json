@@ -1,8 +1,8 @@
 {
   "name": "figma-context-builder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "Manual context builder for the Figma Frontend Agent",
+  "description": "Unified preparation CLI for the Figma Frontend Agent",
   "bin": {
     "figma-context": "bin/figma-context.js"
   },

@@ -5,6 +5,7 @@ const path = require("path");
 const test = require("node:test");
 process.env.FIGMA_CONTEXT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-store-"));
 const { buildContext, validateContext, approveContext } = require("../src/core");
+const { prepareContext } = require("../src/prepare");
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-"));
@@ -95,4 +96,25 @@ test("validation detects a changed collected artifact after normalization", () =
   fs.writeFileSync(collected, JSON.stringify({ kind: "figma_collected_artifact", pages: [] }));
   const status = validateContext(approved.approvedPath, { requireApproved: true, phase: "implementation" });
   assert(status.errors.includes("collected_design_artifact_stale"));
+});
+
+test("prepare imports a supplied Figma JSON then builds and validates one draft", async () => {
+  const { root, source } = fixture();
+  const visual = path.join(root, "products.png");
+  const designJson = path.join(root, "products-figma.json");
+  const intakePath = path.join(root, "POS-142.intake.json");
+  fs.writeFileSync(visual, "reference");
+  fs.writeFileSync(designJson, JSON.stringify({ nodes: { "57:99": { document: { id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } } } } }));
+  fs.writeFileSync(intakePath, JSON.stringify({ project: { key: "prepare-test", sourcePath: source }, task: { id: "POS-142", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-prepare", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, referenceImages: [{ path: visual, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false } }));
+  const result = await prepareContext({ intakePath, designJsonPath: designJson });
+  assert.equal(result.collection.mode, "import");
+  assert.equal(result.validation.valid, true);
+  assert(fs.existsSync(result.collection.artifactPath));
+});
+
+test("prepare refuses Figma REST without explicit authorization", async () => {
+  const { root, source } = fixture();
+  const intakePath = path.join(root, "POS-143.intake.json");
+  fs.writeFileSync(intakePath, JSON.stringify({ project: { key: "prepare-rest-test", sourcePath: source }, task: { id: "POS-143", requestedPhase: "analysis" }, profile: { customer: "test-customer", name: "standard-prepare-rest", version: "1" }, design: { nodes: ["57:99"] } }));
+  await assert.rejects(() => prepareContext({ intakePath, figmaUrl: "https://www.figma.com/design/file/Products?node-id=57-99" }), /allow-figma-rest/);
 });
