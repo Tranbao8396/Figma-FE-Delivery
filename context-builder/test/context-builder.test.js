@@ -4,7 +4,7 @@ const os = require("os");
 const path = require("path");
 const test = require("node:test");
 process.env.FIGMA_CONTEXT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-store-"));
-const { buildContext, validateContext, approveContext } = require("../src/core");
+const { buildContext, validateContext, approveContext, initializeFoundationManifest, finalizeFoundationManifest, transitionToImplementation } = require("../src/core");
 const { prepareContext } = require("../src/prepare");
 const { loadRootEnv } = require("../src/env");
 
@@ -26,6 +26,29 @@ function supplierContract() {
     route: { path: "supplier.html", navigationHref: "supplier.html" },
     filePlan: { primary: ["supplier.html"], create: ["supplier.html"], modify: ["index.html", "src/styles.scss"], forbid: [] }
   };
+}
+
+function scaffoldContract() {
+  return {
+    owner: "agent",
+    framework: { name: "react", majorVersion: "19" },
+    packageManager: "npm",
+    buildTool: "vite",
+    styling: "scss",
+    routing: "react-router",
+    sourceTree: { create: ["package.json", "src/main.jsx", "src/styles/app.scss"], forbid: [] },
+    requiredScripts: ["dev", "build", "test"],
+    baseLayout: ["app-shell", "header", "main"],
+    initialPrimitives: ["button", "menu"]
+  };
+}
+
+function visualFoundationInput(source, root, taskId) {
+  const raw = path.join(root, `${taskId}.json`);
+  const image = path.join(root, `${taskId}.png`);
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", state: "default", viewport: "1400x887", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  return { project: { key: "scaffold-transition", sourcePath: source }, task: { id: taskId, requestedPhase: "foundation", allowedPhases: ["analysis", "foundation"] }, profile: { customer: "test-customer", name: "scaffold-standard", version: "1", framework: { name: "react", majorVersion: "19" } }, design: { targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, scaffoldContract: scaffoldContract() };
 }
 
 test("loads only an absent allowlisted token from a selected env file", () => {
@@ -136,6 +159,99 @@ test("implementation blocks a declared dropdown state when its required shadow i
   const validation = validateContext(result.taskPath, { phase: "implementation" });
   assert(validation.errors.includes("required_visual_state_evidence_missing"));
   assert.deepEqual(validation.context.design.visualStates[0].readiness.errors, ["visual_state_required_effect_missing"]);
+});
+
+test("requires a scaffold contract for foundation on an empty source directory", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-foundation-empty-"));
+  const source = path.join(root, "source");
+  fs.mkdirSync(source);
+  const intake = visualFoundationInput(source, root, "foundation-blocked");
+  delete intake.scaffoldContract;
+  const result = buildContext(intake);
+  const validation = validateContext(result.taskPath, { phase: "foundation" });
+  assert(validation.errors.includes("scaffold_contract_missing"));
+});
+
+test("transitions an approved foundation baseline into a fresh implementation context", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-foundation-transition-"));
+  const source = path.join(root, "source");
+  fs.mkdirSync(source);
+  const foundationBuild = buildContext(visualFoundationInput(source, root, "foundation-1"));
+  assert.equal(validateContext(foundationBuild.taskPath, { phase: "foundation" }).valid, true);
+  const foundationApproved = approveContext(foundationBuild.taskPath);
+
+  fs.mkdirSync(path.join(source, "src"));
+  fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({ dependencies: { react: "19.0.0" }, scripts: { build: "vite build", test: "node --test" } }));
+  fs.writeFileSync(path.join(source, "src", "main.jsx"), "export default null;");
+  const manifestPath = initializeFoundationManifest(foundationApproved.approvedPath).manifestPath;
+  const legacyManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  delete legacyManifest.foundationContextHash;
+  fs.writeFileSync(manifestPath, JSON.stringify({ ...legacyManifest, files: [{ path: "package.json", purpose: "Project scripts" }, { path: "src/main.jsx", purpose: "Application entry" }], evidence: { commands: [{ command: "npm run build", status: "pass", summary: "Build completed" }], viewport: "1400x887", screenshot: "reports/foundation.png" } }));
+  const finalized = finalizeFoundationManifest(foundationApproved.approvedPath);
+  assert.equal(finalized.sourceState, "existing_project");
+  assert.equal(JSON.parse(fs.readFileSync(manifestPath, "utf8")).provenanceMigrated, true);
+
+  const transitioned = transitionToImplementation(foundationApproved.approvedPath, { task: { id: "implementation-1", title: "Products implementation" }, implementationContract: supplierContract() }, { foundationManifestPath: manifestPath });
+  assert.equal(transitioned.validation.valid, true, JSON.stringify(transitioned.validation.errors));
+  const context = transitioned.validation.context || validateContext(transitioned.validation.taskPath).context;
+  assert.equal(context.lineage.foundationContextPath, foundationApproved.approvedPath);
+  assert.equal(context.projectRef.sourceFingerprint, finalized.sourceFingerprint);
+});
+
+test("transition preserves inherited artifacts when implementation intake uses null and retargets a nested frame", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-transition-retarget-"));
+  const source = path.join(root, "source");
+  const raw = path.join(root, "dashboard.json");
+  const image = path.join(root, "dashboard.png");
+  fs.mkdirSync(source);
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "page-1", frames: [{ nodeId: "page-1", state: "default", children: [{ id: "page-1", name: "Page 1", type: "CANVAS", children: [{ id: "frame-1", name: "Dashboard", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }] }));
+  const foundation = buildContext({ project: { key: "retarget-transition", sourcePath: source }, task: { id: "foundation-retarget", requestedPhase: "foundation", allowedPhases: ["analysis", "foundation"] }, profile: { customer: "test-customer", name: "retarget-standard", version: "1", framework: { name: "react", majorVersion: "19" } }, design: { targetFrame: { nodeId: "page-1", name: "Page 1" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, scaffoldContract: scaffoldContract() });
+  const approved = approveContext(foundation.taskPath);
+  fs.mkdirSync(path.join(source, "src"));
+  fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({ dependencies: { react: "19.0.0" }, scripts: { build: "vite build" } }));
+  fs.writeFileSync(path.join(source, "src", "main.jsx"), "export default null;");
+  const manifestPath = initializeFoundationManifest(approved.approvedPath).manifestPath;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.files = [{ path: "package.json", purpose: "Project scripts" }, { path: "src/main.jsx", purpose: "Application entry" }];
+  manifest.evidence.commands = [{ command: "npm run build", status: "pass", summary: "Build completed" }];
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  finalizeFoundationManifest(approved.approvedPath);
+
+  const transitioned = transitionToImplementation(approved.approvedPath, {
+    task: { id: "implementation-retarget", title: "Dashboard implementation" },
+    design: { targetFrame: { nodeId: "frame-1", name: "Dashboard" }, collectedArtifactPath: null, normalizedArtifactPath: null, rawArtifactPath: null, referenceImages: [{ path: image, role: "visual_comparison" }] },
+    implementationContract: supplierContract()
+  }, { foundationManifestPath: manifestPath });
+  assert.equal(transitioned.validation.valid, true, JSON.stringify(transitioned.validation.errors));
+  const draft = JSON.parse(fs.readFileSync(transitioned.build.taskPath, "utf8"));
+  assert.equal(draft.design.targetFrame.nodeId, "frame-1");
+  assert(draft.design.collectedArtifactPath.endsWith("dashboard.json"));
+  const normalized = JSON.parse(fs.readFileSync(draft.design.normalizedArtifactPath, "utf8"));
+  assert.equal(normalized.meta.targetFrame, "frame-1");
+  assert.equal(draft.visualReadiness.targetFrameConfirmed, true);
+});
+
+test("migrates the retired short foundation manifest aliases during finalization", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-foundation-legacy-manifest-"));
+  const source = path.join(root, "source");
+  fs.mkdirSync(source);
+  const foundationBuild = buildContext(visualFoundationInput(source, root, "foundation-legacy"));
+  const foundationApproved = approveContext(foundationBuild.taskPath);
+  fs.mkdirSync(path.join(source, "src"));
+  fs.writeFileSync(path.join(source, "package.json"), JSON.stringify({ dependencies: { react: "19.0.0" }, scripts: { build: "vite build" } }));
+  fs.writeFileSync(path.join(source, "src", "main.jsx"), "export default null;");
+  const manifestPath = initializeFoundationManifest(foundationApproved.approvedPath).manifestPath;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  delete manifest.foundationContextHash;
+  fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, filesChanged: ["package.json", "src/main.jsx"], commands: [{ name: "npm run build", status: "passed" }], evidence: { screenshotPath: "reports/foundation.png" } }));
+
+  finalizeFoundationManifest(foundationApproved.approvedPath);
+  const finalized = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.deepEqual(finalized.files.map((file) => file.path), ["package.json", "src/main.jsx"]);
+  assert.equal(finalized.evidence.commands[0].status, "pass");
+  assert.equal(finalized.evidence.screenshot, "reports/foundation.png");
+  assert.equal(finalized.provenanceMigrated, true);
 });
 
 test("prepare imports a supplied Figma JSON then builds and validates one draft", async () => {

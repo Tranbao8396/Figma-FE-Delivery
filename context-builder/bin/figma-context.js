@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { buildContext, validateContext, approveContext } = require("../src/core");
+const { buildContext, validateContext, approveContext, initializeFoundationManifest, finalizeFoundationManifest, transitionToImplementation } = require("../src/core");
 const { prepareContext } = require("../src/prepare");
 const { loadRootEnv } = require("../src/env");
 const { importDesign, collectFromFigma } = require("../../design-collector/src/core");
@@ -25,11 +25,18 @@ function copyTemplate(output) {
 
 async function main() {
   const command = process.argv[2];
-  const target = argument(command === "init" ? "out" : ["build", "prepare"].includes(command) ? "intake" : ["import", "collect", "normalize"].includes(command) ? "out" : "context");
+  const target = argument(command === "init" ? "out" : ["build", "prepare", "transition"].includes(command) ? "intake" : ["import", "collect", "normalize"].includes(command) ? "out" : "context");
   const phase = argument("phase");
-  if (!command || !target) throw new Error("Usage: figma-context <init|prepare|build|import|collect|normalize|validate|approve|status> --out|--intake|--context <path>");
+  if (!command || !target) throw new Error("Usage: figma-context <init|prepare|build|init-foundation-manifest|finalize-foundation-manifest|transition|import|collect|normalize|validate|approve|status> --out|--intake|--context <path>");
   if (command === "init") return copyTemplate(path.resolve(target));
   if (command === "build") return buildContext(JSON.parse(fs.readFileSync(path.resolve(target), "utf8")));
+  if (command === "init-foundation-manifest") return initializeFoundationManifest(path.resolve(target));
+  if (command === "finalize-foundation-manifest") return finalizeFoundationManifest(path.resolve(target), { foundationManifestPath: argument("foundation-manifest") || undefined });
+  if (command === "transition") {
+    const foundationContext = argument("from");
+    if (!foundationContext) throw new Error("transition requires --from <approved-foundation-context>");
+    return transitionToImplementation(path.resolve(foundationContext), JSON.parse(fs.readFileSync(path.resolve(target), "utf8")), { foundationManifestPath: argument("foundation-manifest") || undefined });
+  }
   const tokenEnv = argument("token-env") || "FIGMA_ACCESS_TOKEN";
   if (command === "prepare") return prepareContext({
     intakePath: path.resolve(target),

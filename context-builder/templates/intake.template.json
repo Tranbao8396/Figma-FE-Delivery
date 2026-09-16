@@ -55,6 +55,7 @@
       "forbid": []
     }
   },
+  "scaffoldContract": null,
   "acceptanceCriteria": [],
   "assumptions": []
 }

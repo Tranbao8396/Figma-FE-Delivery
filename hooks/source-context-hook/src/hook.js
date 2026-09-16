@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const stable = (value) => Array.isArray(value) ? `[${value.map(stable).join(",")}]` : value && typeof value === "object" ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}` : JSON.stringify(value);
 const hash = (value) => crypto.createHash("sha256").update(stable(value)).digest("hex");
@@ -32,6 +32,7 @@ function buildSourceContext(inventory, options = {}) {
     schemaVersion: VERSION,
     kind: "source_context",
     provenance: { repository: options.repository || null, inputFingerprint: fingerprint, status: "current" },
+    sourceState: inventory.sourceState || "unknown",
     runtime: { framework: detectFramework(pkg), packageManager: inventory.packageManager || "unknown", scripts: pkg.scripts || {} },
     topology: {
       entryCandidates: files.filter((file) => /(^|\/)(src\/)?(main|index|app)\.[cm]?[jt]sx?$/i.test(file)).slice(0, 12),

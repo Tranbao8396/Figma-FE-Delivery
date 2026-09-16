@@ -263,6 +263,80 @@ Agent chỉ đọc artifact được `project-context-index.json` cấp cho phas
 
 Flow bình thường dùng `prepare`; các command này dành cho debug, review evidence hoặc tái sử dụng artifact.
 
+## Flow cho source rỗng và scaffold
+
+Bạn cần tạo sẵn `sourcePath` là một thư mục local trước khi build context. Source Collector sẽ tự phân loại, không tin vào một giá trị người dùng tự khai báo:
+
+| `sourceState` | Ý nghĩa |
+| --- | --- |
+| `empty_directory` | Không có file có ý nghĩa sau khi bỏ cache và Git metadata. |
+| `workspace_only` | Chỉ có README, `.gitignore`, docs hoặc metadata workspace. |
+| `partial_scaffold` | Có package/config/source rời rạc nhưng chưa có entry/build chain hoàn chỉnh. |
+| `existing_project` | Có entrypoint và cấu trúc source có thể triển khai. |
+
+Khi state là `empty_directory`, `workspace_only` hoặc `partial_scaffold`, tạo Foundation Context với `requestedPhase: "foundation"` và `scaffoldContract`. Contract phải ghi rõ owner, framework, package manager, build tool, styling, routing, source tree, scripts, base layout và reusable primitives.
+
+```json
+{
+  "scaffoldContract": {
+    "owner": "agent",
+    "framework": { "name": "react", "majorVersion": "19" },
+    "packageManager": "npm",
+    "buildTool": "vite",
+    "styling": "scss",
+    "routing": "react-router",
+    "sourceTree": {
+      "create": ["package.json", "src/main.jsx", "src/styles/app.scss"],
+      "forbid": []
+    },
+    "requiredScripts": ["dev", "build", "test"],
+    "baseLayout": ["app-shell", "header", "sidebar", "main"],
+    "initialPrimitives": ["button", "field", "table", "menu"]
+  }
+}
+```
+
+`owner` là ràng buộc bắt buộc:
+
+- `agent`: Agent được scaffold đúng các path/dependency đã nêu.
+- `user`: Agent chỉ kiểm tra source do người dùng tạo.
+- `external`: Agent chờ source từ bên thứ ba; không tạo bản thay thế.
+
+Foundation Context không được dùng cho page implementation. Sau Foundation:
+
+1. Khởi tạo report template:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js init-foundation-manifest `
+  --context <task-context.foundation.approved.json>
+```
+
+2. Foundation cập nhật `reports/foundation-manifest.json` theo schema do lệnh khởi tạo tạo ra: `files[]` (mỗi phần tử có `path`, `purpose`), `evidence.commands[]` (ít nhất một `status: "pass"`), `evidence.screenshot` và `handoff.allowed_next_slice`. Không tự ghi `sourceFingerprint` hoặc `status: "ready"`.
+3. CLI tự chốt source state/fingerprint hậu Foundation:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js finalize-foundation-manifest `
+  --context <task-context.foundation.approved.json>
+```
+
+4. Tạo intake mới chỉ chứa task Implementation và `implementationContract`; task id phải khác Foundation task id.
+5. Tạo baseline Implementation, kế thừa Profile/Figma evidence qua hash và không fetch Figma lại:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js transition `
+  --from <task-context.foundation.approved.json> `
+  --foundation-manifest <reports\foundation-manifest.json> `
+  --intake D:\work\POS-142-implementation.intake.json
+```
+
+`finalize-foundation-manifest` chỉ chốt manifest khi source là `existing_project`, có `files[]` và ít nhất một command `pass`. Nó tự ghi fingerprint từ source hiện tại. `transition` chỉ chạy khi Foundation context có checksum hợp lệ, scaffold contract ready, source hiện tại là `existing_project` và Foundation manifest có fingerprint khớp source. Nó tạo draft context Implementation mới, copy normalized design artifact bằng hash vào task mới và không gọi Figma.
+
+Manifest legacy thiếu `foundationContextHash`, hoặc dùng alias cũ như `filesChanged`/`commands: passed`, sẽ được finalizer tự chuyển sang schema chuẩn, bind vào Foundation Context đang truyền vào và ghi `provenanceMigrated: true`. Nếu manifest đã có path hoặc hash của Foundation Context khác, finalizer vẫn dừng để tránh dùng sai baseline.
+
+Trong intake Implementation dùng với `transition`, để `collectedArtifactPath`, `normalizedArtifactPath` hoặc `rawArtifactPath` là `null` nghĩa là kế thừa evidence đã duyệt từ Foundation; không phải xóa evidence. Nếu task đổi `targetFrame`, Builder dùng collected artifact đã kế thừa để chuẩn hóa lại artifact theo Frame mới, không gọi Figma lại.
+
+Sau khi scaffold, Foundation Context cũ sẽ báo `source_context_stale`; đây là hành vi mong đợi vì source fingerprint đã đổi. `transition` không dùng context cũ để implement: nó chỉ kiểm integrity của baseline Foundation, rồi tạo baseline Implementation độc lập từ source và manifest mới.
+
 ## Artifact, refresh và chi phí
 
 ```text

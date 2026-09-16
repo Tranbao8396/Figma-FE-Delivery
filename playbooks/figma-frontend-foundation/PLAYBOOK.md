@@ -18,6 +18,8 @@ Require these facts before creating or changing files:
 
 In context mode, the approved task context must permit `foundation`; use its referenced source/rules/layout artifacts and do not replace its approved scope.
 
+When source state is `empty_directory`, `workspace_only`, or `partial_scaffold`, require a ready `scaffoldContract`. Its `owner` is binding: create the declared source tree only for `agent`; for `user` or `external`, inspect and report the missing scaffold without creating substitute files. Do not select a framework, package manager, build tool, router, source tree, or dependency outside the contract.
+
 If a required business decision is blocked, foundation work may build generic shell/tokens only when the manifest explicitly allows it. Do not invent domain fields, routes, API contracts, or production behavior.
 
 ## Source-Tree Contract
@@ -53,7 +55,8 @@ Read [foundation-manifest.md](references/foundation-manifest.md) before handoff.
 - The shell is semantic, has one active-page `h1`, and does not create obvious overflow at the viewport in scope.
 - Shared components render without console errors and follow the customer naming/styling rules.
 - A baseline screenshot or equivalent visual evidence exists for the shell and reusable components.
-- The foundation manifest records files changed, commands run, remaining ambiguity, and the permitted boundary for page implementation.
+- The canonical foundation manifest records `files[]`, `evidence.commands[]`, remaining ambiguity, and the permitted boundary for page implementation. Command status is `pass`, `fail`, or `not_run`; do not use legacy aliases such as `filesChanged` or `passed`.
+- For a scaffolded project, write evidence into `reports/foundation-manifest.json`, then run `figma-context finalize-foundation-manifest --context <approved-foundation-context>`. Do not write `status: ready` or a source fingerprint manually; the CLI stamps both from the post-Foundation source. The finalized file is required for the Implementation Context transition.
 
 Do not claim page completeness, pixel-perfect matching, cross-browser completion, or final accessibility verification at this stage.
 

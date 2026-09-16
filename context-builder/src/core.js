@@ -10,13 +10,17 @@ const { buildProjectContextIndex } = require("../../hooks/project-context-index-
 const { normalizeFile } = require("../../normalizers/design-normalizer/src/core");
 const { collectSourceInventory } = require("../../collectors/source-adapter/src/core");
 const { collectRulesInput } = require("../../collectors/rules-adapter/src/core");
+const { FOUNDATION_MANIFEST_VERSION, createFoundationManifest, normalizeFoundationManifest } = require("./foundation-manifest");
 
-const VERSION = "1.5.0";
+const VERSION = "1.9.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const PHASES = ["analysis", "foundation", "implementation", "review", "qc"];
 const DELIVERY_MODES = new Set(["add_page_to_static_site", "replace_single_static_entry", "modify_existing_page", "add_route_to_existing_app", "component_slice"]);
 const SOURCE_CHANGE_POLICIES = new Set(["preserve_existing_entry", "modify_existing_entry_navigation_only", "replace_entrypoint_explicitly", "modify_existing_page_only"]);
 const ENTRYPOINT_STRATEGIES = new Set(["preserve", "modify_navigation_only", "replace"]);
+const SCAFFOLD_OWNERS = new Set(["agent", "user", "external"]);
+const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+const SCAFFOLD_SOURCE_STATES = new Set(["empty_directory", "workspace_only", "partial_scaffold"]);
 const SECRET_KEY = /^(?:password|secret|token|cookie|authorization|personalAccessToken|figmaPat)$/i;
 
 function stableSerialize(value) {
@@ -139,6 +143,45 @@ function implementationReadiness(intake) {
   };
 }
 
+function scaffoldReadiness(intake) {
+  const contract = intake.scaffoldContract;
+  const errors = [];
+  if (!contract || typeof contract !== "object") return { contract: null, ready: false, errors: ["scaffold_contract_missing"] };
+  if (!SCAFFOLD_OWNERS.has(contract.owner)) errors.push("scaffold_owner_invalid");
+  if (!contract.framework || typeof contract.framework.name !== "string" || !contract.framework.name.trim()) errors.push("scaffold_framework_missing");
+  if (!PACKAGE_MANAGERS.has(contract.packageManager)) errors.push("scaffold_package_manager_invalid");
+  if (typeof contract.buildTool !== "string" || !contract.buildTool.trim()) errors.push("scaffold_build_tool_missing");
+  if (typeof contract.styling !== "string" || !contract.styling.trim()) errors.push("scaffold_styling_missing");
+  const sourceTree = contract.sourceTree && typeof contract.sourceTree === "object" ? contract.sourceTree : null;
+  const normalizeList = (value) => Array.isArray(value) ? value.map(projectRelativePath) : null;
+  const create = normalizeList(sourceTree && sourceTree.create);
+  const forbid = normalizeList(sourceTree && sourceTree.forbid) || [];
+  if (!create || !create.length || create.some((item) => !item)) errors.push("scaffold_source_tree_create_missing");
+  if (forbid.some((item) => !item)) errors.push("scaffold_source_tree_forbid_path_invalid");
+  if (create && new Set(create).size !== create.length) errors.push("scaffold_source_tree_create_duplicate");
+  if (create && forbid.some((item) => create.includes(item))) errors.push("scaffold_source_tree_forbid_conflict");
+  const requiredScripts = Array.isArray(contract.requiredScripts) ? [...new Set(contract.requiredScripts.filter((item) => typeof item === "string" && item.trim()))] : [];
+  if (!requiredScripts.length) errors.push("scaffold_required_scripts_missing");
+  const baseLayout = Array.isArray(contract.baseLayout) ? [...new Set(contract.baseLayout.filter((item) => typeof item === "string" && item.trim()))] : [];
+  const initialPrimitives = Array.isArray(contract.initialPrimitives) ? [...new Set(contract.initialPrimitives.filter((item) => typeof item === "string" && item.trim()))] : [];
+  return {
+    contract: {
+      owner: contract.owner || null,
+      framework: contract.framework || null,
+      packageManager: contract.packageManager || null,
+      buildTool: contract.buildTool || null,
+      styling: contract.styling || null,
+      routing: contract.routing || null,
+      sourceTree: { create: create || [], forbid },
+      requiredScripts,
+      baseLayout,
+      initialPrimitives
+    },
+    ready: errors.length === 0,
+    errors
+  };
+}
+
 function findDesignNode(node, nodeId) {
   if (!node || typeof node !== "object") return null;
   if (node.id === nodeId || node.nodeId === nodeId) return node;
@@ -198,11 +241,21 @@ function visualStateReadiness(intake, normalizedDesign) {
   return { states: records, readiness: { requiredStateEvidenceConfirmed: requiredRecords.every((state) => state.readiness.ready), requiredStateCount: requiredRecords.length, blockedStateIds: requiredRecords.filter((state) => !state.readiness.ready).map((state) => state.id) } };
 }
 
+function normalizedDesignContainsNode(normalizedDesign, nodeId) {
+  if (!normalizedDesign || !nodeId || !Array.isArray(normalizedDesign.pages)) return false;
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return false;
+    if (node.id === nodeId || node.nodeId === nodeId) return true;
+    return Array.isArray(node.children) && node.children.some(visit);
+  };
+  return normalizedDesign.pages.some((page) => page.id === nodeId || (page.frames || []).some((frame) => frame.nodeId === nodeId || (frame.children || []).some(visit)));
+}
+
 function visualReadiness(intake, normalizedDesign) {
   const target = intake.design && intake.design.targetFrame || null;
   const viewport = intake.viewportContract || null;
   const references = (intake.design && intake.design.referenceImages || []).map((item) => ({ path: item && item.path || null, role: item && item.role || "unknown", measurementAuthority: item && item.measurementAuthority || "unknown", available: Boolean(item && item.path && fs.existsSync(item.path)) }));
-  const targetFrameConfirmed = Boolean(target && target.nodeId && normalizedDesign && Array.isArray(normalizedDesign.pages) && normalizedDesign.pages.some((page) => page.id === target.nodeId));
+  const targetFrameConfirmed = Boolean(target && target.nodeId && normalizedDesignContainsNode(normalizedDesign, target.nodeId));
   const viewportContractConfirmed = Boolean(viewport && viewport.referenceViewport && Number.isFinite(viewport.referenceViewport.width) && Number.isFinite(viewport.referenceViewport.height) && ["pc_only", "responsive"].includes(viewport.deviceScope) && ["min_width", "fixed_canvas", "fluid", "max_width"].includes(viewport.layoutBehavior) && (viewport.layoutBehavior !== "min_width" || Number.isFinite(viewport.minWidth)));
   const visualStates = visualStateReadiness(intake, normalizedDesign);
   return { targetFrame: target ? { nodeId: target.nodeId || null, name: target.name || null, presentInRawArtifact: targetFrameConfirmed } : null, viewportContract: viewport, referenceImages: references, visualStates: visualStates.states, readiness: { targetFrameConfirmed, viewportContractConfirmed, visualReferenceConfirmed: references.some((item) => item.role === "visual_comparison" && item.available), ...visualStates.readiness } };
@@ -267,6 +320,7 @@ function buildContext(intake) {
     { id: "layout", kind: "figma_layout_context", path: layoutRelative, phases: ["foundation", "implementation", "review", "qc"] },
     { id: "evidence-links", kind: "evidence_links", path: "evidence/evidence-links.json", phases: ["review", "qc"] }
   ];
+  const targetNodeId = intake.design && intake.design.targetFrame && intake.design.targetFrame.nodeId || null;
   const declaredNormalizedArtifact = intake.design && intake.design.normalizedArtifactPath;
   const collectedArtifact = intake.design && (intake.design.collectedArtifactPath || intake.design.rawArtifactPath);
   const buildWarnings = [];
@@ -274,9 +328,17 @@ function buildContext(intake) {
   let normalizedArtifactPath = null;
   if (declaredNormalizedArtifact && fs.existsSync(declaredNormalizedArtifact)) {
     try {
-      normalizedDesign = readJson(declaredNormalizedArtifact);
-      normalizedArtifactPath = path.resolve(declaredNormalizedArtifact);
-      if (normalizedDesign.kind !== "normalized_design_artifact") throw new Error("Declared normalizedArtifactPath is not a normalized_design_artifact");
+      const declaredNormalized = readJson(declaredNormalizedArtifact);
+      if (declaredNormalized.kind !== "normalized_design_artifact") throw new Error("Declared normalizedArtifactPath is not a normalized_design_artifact");
+      const normalizedTarget = declaredNormalized.meta && declaredNormalized.meta.targetFrame || null;
+      const mustRetarget = Boolean(collectedArtifact && targetNodeId && normalizedTarget !== targetNodeId);
+      if (!mustRetarget) {
+        normalizedDesign = declaredNormalized;
+        const normalizedOutput = path.join(projectRoot, normalizedDesignRelative);
+        const existingNormalized = fs.existsSync(normalizedOutput) ? readJson(normalizedOutput) : null;
+        if (!existingNormalized || documentHash(existingNormalized) !== documentHash(normalizedDesign)) writeJson(normalizedOutput, normalizedDesign);
+        normalizedArtifactPath = normalizedOutput;
+      }
     } catch (error) {
       buildWarnings.push({ code: "normalized_design_artifact_invalid", message: error.message });
     }
@@ -285,7 +347,6 @@ function buildContext(intake) {
   }
   if (!normalizedDesign && collectedArtifact && fs.existsSync(collectedArtifact)) {
     try {
-      const targetNodeId = intake.design && intake.design.targetFrame && intake.design.targetFrame.nodeId;
       const normalizedOutput = path.join(projectRoot, normalizedDesignRelative);
       const normalized = normalizeFile(collectedArtifact, normalizedOutput, { targetNodeId });
       normalizedDesign = normalized.artifact;
@@ -321,11 +382,12 @@ function buildContext(intake) {
   const projectPayload = {
     schemaVersion: VERSION,
     kind: "project_context",
-    project: { key: intake.project.key, sourcePath: path.resolve(intake.project.sourcePath) },
+    project: { key: intake.project.key, sourcePath: path.resolve(intake.project.sourcePath), sourceState: source.context.sourceState },
     profileRef: { path: profileOutput, id: profile.id, version: profile.version, hash: documentHash(profile) },
     sourceRef: { path: source.path, fingerprint: source.context.provenance.inputFingerprint },
     rulesRef: { path: rules.path, fingerprint: rules.context.provenance.inputFingerprint },
     runtime: source.context.runtime,
+    sourceState: source.context.sourceState,
     provenance: { inputFingerprint: fingerprint({ profile: documentHash(profile), source: source.context.provenance.inputFingerprint, rules: rules.context.provenance.inputFingerprint, version: VERSION }), status: "current" }
   };
   const existingProject = fs.existsSync(projectContextOutput) ? readJson(projectContextOutput) : null;
@@ -344,6 +406,7 @@ function buildContext(intake) {
   const taskDraftOutput = path.join(taskRoot, "task-context.draft.json");
   const visual = visualReadiness(intake, normalizedDesign);
   const implementation = implementationReadiness(intake);
+  const scaffold = scaffoldReadiness(intake);
   const taskPayload = {
     schemaVersion: VERSION,
     kind: "task_context",
@@ -369,6 +432,9 @@ function buildContext(intake) {
     viewportContract: visual.viewportContract,
     implementationContract: implementation.contract,
     implementationReadiness: { ready: implementation.ready, errors: implementation.errors },
+    scaffoldContract: scaffold.contract,
+    scaffoldReadiness: { ready: scaffold.ready, errors: scaffold.errors },
+    lineage: intake.lineage || null,
     assetPolicy: intake.assetPolicy || { icons: "figma_asset_or_approved_library_only", forbidCssRecreationWithoutEvidence: true },
     visualReadiness: visual.readiness,
     acceptanceCriteria: intake.acceptanceCriteria || [],
@@ -426,7 +492,15 @@ function validationErrors(context, contextPath, options = {}) {
       if (!context.visualReadiness || !context.visualReadiness.viewportContractConfirmed) errors.push("viewport_contract_not_confirmed");
       if (!context.visualReadiness || !context.visualReadiness.visualReferenceConfirmed) errors.push("visual_reference_not_confirmed");
       if (!context.visualReadiness || !context.visualReadiness.requiredStateEvidenceConfirmed) errors.push("required_visual_state_evidence_missing");
-      if (!context.implementationReadiness || !context.implementationReadiness.ready) errors.push(...(context.implementationReadiness && context.implementationReadiness.errors || ["implementation_contract_missing"]));
+      const project = context.projectRef && context.projectRef.path && fs.existsSync(context.projectRef.path) ? readJson(context.projectRef.path) : null;
+      const sourceState = project && project.sourceState || project && project.project && project.project.sourceState || "unknown";
+      if (requested === "foundation" && SCAFFOLD_SOURCE_STATES.has(sourceState)) {
+        if (!context.scaffoldReadiness || !context.scaffoldReadiness.ready) errors.push(...(context.scaffoldReadiness && context.scaffoldReadiness.errors || ["scaffold_contract_missing"]));
+      }
+      if (requested === "implementation") {
+        if (sourceState !== "existing_project") errors.push(`implementation_source_state_invalid:${sourceState}`);
+        if (!context.implementationReadiness || !context.implementationReadiness.ready) errors.push(...(context.implementationReadiness && context.implementationReadiness.errors || ["implementation_contract_missing"]));
+      }
     }
   }
   if (options.requireApproved) {
@@ -460,4 +534,137 @@ function approveContext(draftPath) {
   return { approvedPath, checksumPath: `${approvedPath}.sha256`, hash: documentHash(approved) };
 }
 
-module.exports = { CONTEXT_ROOT, VERSION, buildContext, validateContext, approveContext, documentHash, sourceInventory: collectSourceInventory };
+function initializeFoundationManifest(foundationContextPath) {
+  const foundation = assertApprovedIntegrity(path.resolve(foundationContextPath));
+  assert(foundation.scaffoldReadiness && foundation.scaffoldReadiness.ready, "Foundation context does not contain a ready scaffold contract");
+  const outputPath = path.join(path.dirname(foundationContextPath), "reports", "foundation-manifest.json");
+  assert(!fs.existsSync(outputPath), `Refusing to overwrite existing foundation manifest: ${outputPath}`);
+  const project = foundation.projectRef && foundation.projectRef.path && fs.existsSync(foundation.projectRef.path) ? readJson(foundation.projectRef.path) : null;
+  writeJson(outputPath, { ...createFoundationManifest(), sourceState: project && project.sourceState || null, scaffoldOwner: foundation.scaffoldContract.owner, foundationContextPath: path.resolve(foundationContextPath), foundationContextHash: documentHash(foundation) });
+  return { manifestPath: outputPath };
+}
+
+function finalizeFoundationManifest(foundationContextPath, options = {}) {
+  const foundation = assertApprovedIntegrity(path.resolve(foundationContextPath));
+  assert(foundation.scaffoldReadiness && foundation.scaffoldReadiness.ready, "Foundation context does not contain a ready scaffold contract");
+  assert(foundation.projectRef && foundation.projectRef.path && fs.existsSync(foundation.projectRef.path), "Foundation project reference is unavailable");
+  const project = readJson(foundation.projectRef.path);
+  const sourcePath = project.project && project.project.sourcePath;
+  assert(sourcePath && fs.existsSync(sourcePath), "Foundation source directory is unavailable");
+  const currentSource = buildSourceContext(collectSourceInventory(sourcePath), { repository: sourcePath });
+  assert(currentSource.context.sourceState === "existing_project", `Foundation source is not implementation-ready: ${currentSource.context.sourceState}`);
+  const manifestPath = path.resolve(options.foundationManifestPath || path.join(path.dirname(foundationContextPath), "reports", "foundation-manifest.json"));
+  assertWithinContextRoot(manifestPath);
+  assert(fs.existsSync(manifestPath), `Foundation manifest is missing: ${manifestPath}`);
+  const normalization = normalizeFoundationManifest(readJson(manifestPath));
+  const manifest = normalization.manifest;
+  assert(manifest.kind === "foundation_manifest", "Foundation manifest kind is invalid");
+  const contextPath = path.resolve(foundationContextPath);
+  const expectedContextHash = documentHash(foundation);
+  if (manifest.foundationContextPath) assert(path.resolve(manifest.foundationContextPath) === contextPath, "Foundation manifest belongs to a different approved context");
+  if (manifest.foundationContextHash) assert(manifest.foundationContextHash === expectedContextHash, "Foundation manifest belongs to a different approved context");
+  assert(Array.isArray(manifest.files) && manifest.files.length, "Foundation manifest requires files evidence before finalization");
+  assert(Array.isArray(manifest.evidence.commands) && manifest.evidence.commands.some((command) => command && command.status === "pass"), "Foundation manifest requires at least one pass command before finalization");
+  const finalized = {
+    ...manifest,
+    status: "ready",
+    sourceState: currentSource.context.sourceState,
+    sourceFingerprint: currentSource.context.provenance.inputFingerprint,
+    foundationContextPath: contextPath,
+    foundationContextHash: expectedContextHash,
+    provenanceMigrated: !manifest.foundationContextHash || normalization.migrated,
+    finalizedAt: new Date().toISOString(),
+    finalizedBy: process.env.USERNAME || process.env.USER || "unknown",
+    toolVersion: VERSION
+  };
+  writeJson(manifestPath, finalized);
+  return { manifestPath, sourceState: finalized.sourceState, sourceFingerprint: finalized.sourceFingerprint };
+}
+
+function assertApprovedIntegrity(contextPath) {
+  assert(fs.existsSync(contextPath), `Foundation context does not exist: ${contextPath}`);
+  assertWithinContextRoot(contextPath);
+  const context = readJson(contextPath);
+  assert(context.kind === "task_context" && context.status === "approved", "Transition requires an approved foundation context");
+  const checksumPath = `${contextPath}.sha256`;
+  assert(fs.existsSync(checksumPath), "Foundation context checksum is missing");
+  assert(fs.readFileSync(checksumPath, "utf8").trim() === documentHash(context), "Foundation context checksum does not match");
+  return context;
+}
+
+function profileInputFromContext(context) {
+  assert(context.profileRef && context.profileRef.path && fs.existsSync(context.profileRef.path), "Foundation profile reference is unavailable");
+  const profile = readJson(context.profileRef.path);
+  const [customer, name] = String(profile.id || "").split("/");
+  assert(customer && name, "Foundation profile id is invalid");
+  return { customer, name, version: profile.version, framework: profile.framework, codingRules: profile.codingRules, lintRules: profile.lintRules, formatRules: profile.formatRules, reportFormat: profile.reportFormat };
+}
+
+function mergeDefined(base, override) {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override || {})) {
+    if (value !== null && value !== undefined) result[key] = value;
+  }
+  return result;
+}
+
+function transitionToImplementation(foundationContextPath, implementationIntake, options = {}) {
+  const foundation = assertApprovedIntegrity(path.resolve(foundationContextPath));
+  assert(foundation.scaffoldReadiness && foundation.scaffoldReadiness.ready, "Foundation context does not contain a ready scaffold contract");
+  assert(foundation.task && foundation.task.allowedPhases && foundation.task.allowedPhases.includes("foundation"), "Foundation context did not permit foundation phase");
+  assert(foundation.projectRef && foundation.projectRef.path && fs.existsSync(foundation.projectRef.path), "Foundation project reference is unavailable");
+  const foundationProject = readJson(foundation.projectRef.path);
+  const sourcePath = foundationProject.project && foundationProject.project.sourcePath;
+  assert(sourcePath && fs.existsSync(sourcePath), "Foundation source directory is unavailable");
+  const currentSource = buildSourceContext(collectSourceInventory(sourcePath), { repository: sourcePath });
+  assert(currentSource.context.sourceState === "existing_project", `Foundation source is not implementation-ready: ${currentSource.context.sourceState}`);
+  const manifestPath = path.resolve(options.foundationManifestPath || path.join(path.dirname(foundationContextPath), "reports", "foundation-manifest.json"));
+  assertWithinContextRoot(manifestPath);
+  assert(fs.existsSync(manifestPath), `Foundation manifest is missing: ${manifestPath}`);
+  const manifest = readJson(manifestPath);
+  assert(manifest.kind === "foundation_manifest" && manifest.status === "ready", "Foundation manifest is not ready");
+  assert(manifest.schemaVersion === FOUNDATION_MANIFEST_VERSION, "Foundation manifest must be finalized with figma-context finalize-foundation-manifest before transition");
+  assert(manifest.sourceFingerprint === currentSource.context.provenance.inputFingerprint, "Foundation manifest source fingerprint is stale");
+  assert(implementationIntake && implementationIntake.task && implementationIntake.task.id, "Implementation intake requires task.id");
+  assert(implementationIntake.task.id !== foundation.task.id, "Implementation task id must differ from foundation task id");
+
+  const inheritedDesign = foundation.design || {};
+  const inherited = {
+    project: { key: foundation.project.key, sourcePath },
+    profile: profileInputFromContext(foundation),
+    design: {
+      figmaUrl: inheritedDesign.figmaUrl || null,
+      nodes: inheritedDesign.nodes || [],
+      targetFrame: inheritedDesign.targetFrame ? { nodeId: inheritedDesign.targetFrame.nodeId, name: inheritedDesign.targetFrame.name } : null,
+      referenceImages: inheritedDesign.referenceImages || [],
+      visualStates: inheritedDesign.visualStates || [],
+      collectedArtifactPath: inheritedDesign.collectedArtifactPath || null,
+      normalizedArtifactPath: inheritedDesign.normalizedArtifactPath || null
+    },
+    viewportContract: foundation.viewportContract || null,
+    assetPolicy: foundation.assetPolicy || null,
+    acceptanceCriteria: foundation.acceptanceCriteria || [],
+    assumptions: foundation.assumptions || []
+  };
+  const intake = {
+    ...inherited,
+    ...implementationIntake,
+    project: { ...inherited.project, ...(implementationIntake.project || {}) },
+    profile: { ...inherited.profile, ...(implementationIntake.profile || {}) },
+    // Nullable fields in an Implementation intake mean "inherit", not "erase approved evidence".
+    design: mergeDefined(inherited.design, implementationIntake.design),
+    lineage: {
+      foundationContextPath: path.resolve(foundationContextPath),
+      foundationContextHash: documentHash(foundation),
+      foundationManifestPath: manifestPath,
+      foundationSourceFingerprint: currentSource.context.provenance.inputFingerprint
+    }
+  };
+  assert(path.resolve(intake.project.sourcePath) === path.resolve(sourcePath), "Implementation intake sourcePath must match the foundation source path");
+  intake.task = { ...(implementationIntake.task || {}), requestedPhase: "implementation", allowedPhases: implementationIntake.task.allowedPhases || ["implementation", "review", "qc"] };
+  const build = buildContext(intake);
+  const validation = validateContext(build.taskPath, { phase: "implementation" });
+  return { mode: "foundation_to_implementation", foundationContextPath: path.resolve(foundationContextPath), foundationManifestPath: manifestPath, build, validation: { valid: validation.valid, errors: validation.errors, taskPath: build.taskPath } };
+}
+
+module.exports = { CONTEXT_ROOT, VERSION, buildContext, validateContext, approveContext, initializeFoundationManifest, finalizeFoundationManifest, transitionToImplementation, documentHash, sourceInventory: collectSourceInventory };

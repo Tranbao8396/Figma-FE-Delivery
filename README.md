@@ -16,6 +16,8 @@ Flow chuẩn:
 init -> điền intake -> prepare -> review/validate -> approve -> Agent làm phase
 ```
 
+Với source folder rỗng, dùng hai baseline: Foundation Context có `scaffoldContract`, sau đó tạo Implementation Context mới bằng `transition` sau khi source được scaffold và Foundation manifest xác nhận fingerprint. Xem [GUIDE.md](GUIDE.md).
+
 ```powershell
 # 1. Tạo intake
 node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js init `

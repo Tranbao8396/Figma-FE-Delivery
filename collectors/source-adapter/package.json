@@ -1,0 +1,7 @@
+{
+  "name": "figma-source-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "test": "node test/source-adapter.test.js" },
+  "engines": { "node": ">=18" }
+}

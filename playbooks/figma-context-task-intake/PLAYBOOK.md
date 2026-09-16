@@ -28,7 +28,8 @@ Direct mode may use local compilers and the Figma request planner. If the user e
 ## Phase Mapping
 
 - `analysis`: use approved scope, source/rules artifacts, design references, and known gaps. Stop after planning when scope says analysis only.
-- `foundation` and `implementation`: require their phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, a local visual-comparison image, and a ready implementation contract. Never interpret a reference viewport as `max-width` unless the contract says so; never infer page/route/file ownership.
+- `foundation`: require its phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, and a local visual-comparison image. For `empty_directory`, `workspace_only`, or `partial_scaffold`, require a ready `scaffoldContract`; honor its `owner` and do not create source when ownership is `user` or `external`.
+- `implementation`: require `sourceState=existing_project`, a Foundation manifest with the current source fingerprint when the task has scaffold lineage, and a ready implementation contract. Never interpret a reference viewport as `max-width` unless the contract says so; never infer page/route/file ownership.
 - `review` and `qc`: require their phase gate plus evidence links and the task reports; never fetch Figma directly.
 
 ## Terminology
