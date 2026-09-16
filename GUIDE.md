@@ -205,9 +205,13 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js prepare
 
 ### 2. Prepare từ Figma REST targeted
 
-Chỉ dùng khi không có JSON/cache và người dùng đã authorize:
+Chỉ dùng khi không có JSON/cache và người dùng đã authorize. Ưu tiên tạo `D:\agents\figma-frontend-agent\.env` từ `.env.example` rồi đặt token tại đó:
 
 ```powershell
+# D:\agents\figma-frontend-agent\.env
+FIGMA_ACCESS_TOKEN=<personal-access-token>
+
+# Hoặc chỉ định tạm thời cho cửa sổ PowerShell hiện tại:
 $env:FIGMA_ACCESS_TOKEN = "<personal-access-token>"
 node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js prepare `
   --intake D:\work\POS-142.intake.json `
@@ -216,7 +220,7 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js prepare
   --phase implementation
 ```
 
-Thiếu `--allow-figma-rest`, CLI từ chối trước khi đọc token hoặc gọi network. Token chỉ đọc từ environment variable của process, không được ghi vào artifact hoặc log. Cache theo file/node/depth/version; cache hit không cần token/network.
+Thiếu `--allow-figma-rest`, CLI từ chối trước khi đọc token hoặc gọi network. Với `prepare --figma-url` và `collect`, CLI chỉ nạp key token được yêu cầu từ `.env` ở root Agent khi biến đó chưa có trong terminal. Biến của terminal luôn được ưu tiên. Token không được ghi vào intake, artifact, context hoặc log. Cache theo file/node/depth/version; cache hit không cần token/network.
 
 ### 3. Validate, review và approve
 

@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { CONTEXT_ROOT, buildContext, validateContext } = require("./core");
 const { importDesign, collectFromFigma } = require("../../design-collector/src/core");
+const { loadRootEnv } = require("./env");
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function readJson(filePath) { return JSON.parse(fs.readFileSync(filePath, "utf8")); }
@@ -42,6 +43,7 @@ async function prepareContext(options) {
     collection = { mode: "import", cacheHit: result.cacheHit, artifactPath: result.outPath, pages: result.artifact.pages.length };
   } else if (options.figmaUrl) {
     assert(options.allowFigmaRest, "Figma REST collection requires explicit --allow-figma-rest");
+    loadRootEnv([options.tokenEnv || "FIGMA_ACCESS_TOKEN"]);
     const result = await collectFromFigma({
       figmaUrl: options.figmaUrl,
       outPath: options.outPath ? path.resolve(options.outPath) : designOutputPath(effectiveIntake),

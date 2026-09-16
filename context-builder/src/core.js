@@ -11,7 +11,7 @@ const { normalizeFile } = require("../../normalizers/design-normalizer/src/core"
 const { collectSourceInventory } = require("../../collectors/source-adapter/src/core");
 const { collectRulesInput } = require("../../collectors/rules-adapter/src/core");
 
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const PHASES = ["analysis", "foundation", "implementation", "review", "qc"];
 const DELIVERY_MODES = new Set(["add_page_to_static_site", "replace_single_static_entry", "modify_existing_page", "add_route_to_existing_app", "component_slice"]);

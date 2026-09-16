@@ -1,6 +1,6 @@
 {
   "name": "figma-context-builder",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Unified preparation CLI for the Figma Frontend Agent",
   "bin": {

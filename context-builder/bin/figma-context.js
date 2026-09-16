@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { buildContext, validateContext, approveContext } = require("../src/core");
 const { prepareContext } = require("../src/prepare");
+const { loadRootEnv } = require("../src/env");
 const { importDesign, collectFromFigma } = require("../../design-collector/src/core");
 const { normalizeFile } = require("../../normalizers/design-normalizer/src/core");
 
@@ -29,6 +30,7 @@ async function main() {
   if (!command || !target) throw new Error("Usage: figma-context <init|prepare|build|import|collect|normalize|validate|approve|status> --out|--intake|--context <path>");
   if (command === "init") return copyTemplate(path.resolve(target));
   if (command === "build") return buildContext(JSON.parse(fs.readFileSync(path.resolve(target), "utf8")));
+  const tokenEnv = argument("token-env") || "FIGMA_ACCESS_TOKEN";
   if (command === "prepare") return prepareContext({
     intakePath: path.resolve(target),
     designJsonPath: argument("design-json"),
@@ -42,7 +44,7 @@ async function main() {
     maxChildren: number("max-children", 100),
     refresh: process.argv.includes("--refresh"),
     allowFigmaRest: process.argv.includes("--allow-figma-rest"),
-    tokenEnv: argument("token-env") || "FIGMA_ACCESS_TOKEN",
+    tokenEnv,
     version: argument("version")
   });
   if (command === "import") {
@@ -54,7 +56,8 @@ async function main() {
     const figmaUrl = argument("figma-url");
     if (!figmaUrl) throw new Error("collect requires --figma-url <url>");
     if (!process.argv.includes("--allow-figma-rest")) throw new Error("collect requires explicit --allow-figma-rest");
-    return collectFromFigma({ figmaUrl, outPath: path.resolve(target), nodeIds: argumentsList("node-ids"), depth: number("depth", 10), maxDepth: number("max-depth", 10), maxChildren: number("max-children", 100), refresh: process.argv.includes("--refresh"), tokenEnv: argument("token-env") || "FIGMA_ACCESS_TOKEN", version: argument("version") });
+    loadRootEnv([tokenEnv]);
+    return collectFromFigma({ figmaUrl, outPath: path.resolve(target), nodeIds: argumentsList("node-ids"), depth: number("depth", 10), maxDepth: number("max-depth", 10), maxChildren: number("max-children", 100), refresh: process.argv.includes("--refresh"), tokenEnv, version: argument("version") });
   }
   if (command === "normalize") {
     const input = argument("input");

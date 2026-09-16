@@ -6,6 +6,7 @@ const test = require("node:test");
 process.env.FIGMA_CONTEXT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-store-"));
 const { buildContext, validateContext, approveContext } = require("../src/core");
 const { prepareContext } = require("../src/prepare");
+const { loadRootEnv } = require("../src/env");
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-"));
@@ -26,6 +27,22 @@ function supplierContract() {
     filePlan: { primary: ["supplier.html"], create: ["supplier.html"], modify: ["index.html", "src/styles.scss"], forbid: [] }
   };
 }
+
+test("loads only an absent allowlisted token from a selected env file", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-env-"));
+  const envPath = path.join(root, ".env");
+  fs.writeFileSync(envPath, "FIGMA_ACCESS_TOKEN=from-file\nUNRELATED_SECRET=must-not-load\n");
+  delete process.env.FIGMA_TEST_TOKEN;
+  fs.appendFileSync(envPath, "FIGMA_TEST_TOKEN=from-file\n");
+  const result = loadRootEnv(["FIGMA_TEST_TOKEN"], { envPath });
+  assert.deepEqual(result.loadedKeys, ["FIGMA_TEST_TOKEN"]);
+  assert.equal(process.env.FIGMA_TEST_TOKEN, "from-file");
+  assert.equal(process.env.UNRELATED_SECRET, undefined);
+  process.env.FIGMA_TEST_TOKEN = "from-terminal";
+  assert.deepEqual(loadRootEnv(["FIGMA_TEST_TOKEN"], { envPath }).loadedKeys, []);
+  assert.equal(process.env.FIGMA_TEST_TOKEN, "from-terminal");
+  delete process.env.FIGMA_TEST_TOKEN;
+});
 
 test("build reuses profile/project artifacts and allows an analysis-only approval", () => {
   const { source } = fixture();

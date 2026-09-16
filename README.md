@@ -35,6 +35,8 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js approve
 Không có JSON Figma cache/export thì mới dùng REST targeted:
 
 ```powershell
+# Ưu tiên: đặt FIGMA_ACCESS_TOKEN trong D:\agents\figma-frontend-agent\.env.
+# Hoặc chỉ định tạm thời cho cửa sổ PowerShell hiện tại:
 $env:FIGMA_ACCESS_TOKEN = "<personal-access-token>"
 node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js prepare `
   --intake D:\work\POS-142.intake.json `
