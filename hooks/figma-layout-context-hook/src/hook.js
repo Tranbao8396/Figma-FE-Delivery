@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const HOOK_VERSION = "1.3.0";
+const HOOK_VERSION = "1.4.0";
 const LAYOUT_NOTE_PATTERN = /layout|grid|column|card|table|form|sidebar|header|viewport|responsive|scroll|panel|width|height|stack|two-column|full-screen/i;
 const NON_UI_NODE_TYPES = new Set(["DOCUMENT", "PAGE", "SECTION", "SLICE", "CONNECTOR", "WIDGET", "EMBED", "LINK_UNFURL", "STAMP"]);
 const DESIGN_ONLY_NAME_PATTERN = /\b(annotation|note|spec|guide|redline|measurement|draft|template|archive|do not use)\b/i;
@@ -166,6 +166,29 @@ function nodeLayout(node) {
   return layout;
 }
 
+function effectColorToCss(color = {}) {
+  if (![color.r, color.g, color.b].every(Number.isFinite)) return null;
+  const channel = (value) => Math.max(0, Math.min(255, Math.round(value * 255)));
+  const alpha = Number.isFinite(color.a) ? Math.max(0, Math.min(1, color.a)) : 1;
+  return `rgba(${channel(color.r)}, ${channel(color.g)}, ${channel(color.b)}, ${Number(alpha.toFixed(3))})`;
+}
+
+function effectToWebStyle(effect) {
+  if (!effect || effect.visible === false || typeof effect.type !== "string") return null;
+  if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
+    const color = effectColorToCss(effect.color);
+    if (!color) return null;
+    const x = toCssPx(effect.offset && effect.offset.x || 0);
+    const y = toCssPx(effect.offset && effect.offset.y || 0);
+    const blur = toCssPx(effect.radius || 0);
+    const spread = toCssPx(effect.spread || 0);
+    return { kind: "boxShadow", type: effect.type, css: `${effect.type === "INNER_SHADOW" ? "inset " : ""}${x} ${y} ${blur} ${spread} ${color}` };
+  }
+  if (effect.type === "LAYER_BLUR" && Number.isFinite(effect.radius)) return { kind: "filter", type: effect.type, css: `blur(${toCssPx(effect.radius)})` };
+  if (effect.type === "BACKGROUND_BLUR" && Number.isFinite(effect.radius)) return { kind: "backdropFilter", type: effect.type, css: `blur(${toCssPx(effect.radius)})` };
+  return null;
+}
+
 function nodeStyle(node) {
   const style = {};
   if (typeof node.cornerRadius === "number") style.borderRadius = toCssPx(node.cornerRadius);
@@ -175,6 +198,14 @@ function nodeStyle(node) {
     if (typeof node.fontWeight === "number") style.fontWeight = node.fontWeight;
     if (node.fontName && node.fontName.family) style.fontFamily = node.fontName.family;
   }
+  const effects = (node.effects || []).map(effectToWebStyle).filter(Boolean);
+  const shadows = effects.filter((effect) => effect.kind === "boxShadow");
+  const filters = effects.filter((effect) => effect.kind === "filter");
+  const backdropFilters = effects.filter((effect) => effect.kind === "backdropFilter");
+  if (shadows.length) style.boxShadow = shadows.map((effect) => effect.css).join(", ");
+  if (filters.length) style.filter = filters.map((effect) => effect.css).join(" ");
+  if (backdropFilters.length) style.backdropFilter = backdropFilters.map((effect) => effect.css).join(" ");
+  if (effects.length) style.effectTypes = [...new Set(effects.map((effect) => effect.type))];
   return style;
 }
 
@@ -189,6 +220,7 @@ function isFlattenableWrapper(node, children) {
     && Object.keys(style).length === 0
     && !(Array.isArray(node.fills) && node.fills.length)
     && !(Array.isArray(node.strokes) && node.strokes.length)
+    && !(Array.isArray(node.effects) && node.effects.some((effect) => effect && effect.visible !== false))
     && !node.clipContent;
 }
 
@@ -251,13 +283,14 @@ function buildInitialComponents(frames, policy, diagnostics) {
 }
 
 function collectLayoutValues(componentStates) {
-  const values = { gap: new Map(), padding: new Map(), radius: new Map() };
+  const values = { gap: new Map(), padding: new Map(), radius: new Map(), shadow: new Map() };
   function visit(node) {
     if (node.layout && node.layout.gap) values.gap.set(node.layout.gap, (values.gap.get(node.layout.gap) || 0) + 1);
     if (node.layout && node.layout.padding) {
       for (const value of Object.values(node.layout.padding)) values.padding.set(value, (values.padding.get(value) || 0) + 1);
     }
     if (node.style && node.style.borderRadius) values.radius.set(node.style.borderRadius, (values.radius.get(node.style.borderRadius) || 0) + 1);
+    if (node.style && node.style.boxShadow) values.shadow.set(node.style.boxShadow, (values.shadow.get(node.style.boxShadow) || 0) + 1);
     for (const child of node.children || []) visit(child);
   }
   for (const state of componentStates) for (const root of state.roots) visit(root);

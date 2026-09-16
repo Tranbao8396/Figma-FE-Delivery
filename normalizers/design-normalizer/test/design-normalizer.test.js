@@ -19,7 +19,7 @@ test("normalizes one nested target frame and removes hidden, design-only, and ve
           type: "FRAME",
           absoluteBoundingBox: { width: 1400, height: 887 },
           children: [
-            { id: "57:100", name: "Visible row", type: "FRAME" },
+            { id: "57:100", name: "Visible row", type: "FRAME", effects: [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.16 } }] },
             { id: "57:101", name: "Hidden row", type: "FRAME", visible: false },
             { id: "57:102", name: "Measurement guide", type: "TEXT" },
             { id: "57:103", name: "Export", type: "VECTOR", absoluteBoundingBox: { width: 16, height: 16 } }
@@ -39,5 +39,6 @@ test("normalizes one nested target frame and removes hidden, design-only, and ve
   assert.equal(artifact.pages[0].id, "57:99");
   assert.equal(artifact.pages[0].frames[0].viewport, "1400x887");
   assert.deepEqual(artifact.pages[0].frames[0].children[0].children.map((node) => node.id), ["57:100"]);
+  assert.equal(artifact.pages[0].frames[0].children[0].children[0].effects[0].type, "DROP_SHADOW");
   assert.deepEqual(artifact.assets[0], { nodeId: "57:103", name: "Export", kind: "icon", status: "requires_export_or_library_mapping", source: "figma_node", width: 16, height: 16 });
 });

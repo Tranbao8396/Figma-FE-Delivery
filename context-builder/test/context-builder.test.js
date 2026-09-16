@@ -17,6 +17,16 @@ function fixture() {
   return { root, source };
 }
 
+function supplierContract() {
+  return {
+    deliveryMode: "add_page_to_static_site",
+    sourceChangePolicy: "preserve_existing_entry",
+    entrypointStrategy: "modify_navigation_only",
+    route: { path: "supplier.html", navigationHref: "supplier.html" },
+    filePlan: { primary: ["supplier.html"], create: ["supplier.html"], modify: ["index.html", "src/styles.scss"], forbid: [] }
+  };
+}
+
 test("build reuses profile/project artifacts and allows an analysis-only approval", () => {
   const { source } = fixture();
   const intake = { project: { key: "context-test", sourcePath: source }, task: { id: "task-1", requestedPhase: "analysis" }, profile: { customer: "test-customer", name: "standard", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: [] } };
@@ -75,7 +85,7 @@ test("implementation requires a target frame, viewport contract, and visual refe
   const image = path.join(root, "product.png");
   fs.writeFileSync(image, "reference");
   fs.writeFileSync(raw, JSON.stringify({ meta: { sourceMode: "imported_json" }, pages: [{ id: "57:99", title: "Products", frames: [{ nodeId: "57:99", state: "default", viewport: "1400x887", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { x: 0, y: 0, width: 1400, height: 887 } }] }] }], designSystem: { colors: { confirmedVariables: {} }, typography: { localTextStyles: [] } }, routingModel: { sharedShell: [] }, ambiguities: [] }));
-  const intake = { project: { key: "visual-gate-test", sourcePath: source }, task: { id: "task-6", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-visual", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false } };
+  const intake = { project: { key: "visual-gate-test", sourcePath: source }, task: { id: "task-6", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-visual", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false }, implementationContract: supplierContract() };
   const result = buildContext(intake);
   const validation = validateContext(result.taskPath, { phase: "implementation" });
   assert.equal(validation.valid, true);
@@ -91,11 +101,24 @@ test("validation detects a changed collected artifact after normalization", () =
   const image = path.join(root, "product.png");
   fs.writeFileSync(image, "reference");
   fs.writeFileSync(collected, JSON.stringify({ kind: "figma_collected_artifact", pages: [{ id: "57:99", title: "Products", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
-  const result = buildContext({ project: { key: "collected-stale-test", sourcePath: source }, task: { id: "task-7", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-collected-stale", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, collectedArtifactPath: collected, referenceImages: [{ path: image, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false } });
+  const result = buildContext({ project: { key: "collected-stale-test", sourcePath: source }, task: { id: "task-7", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-collected-stale", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, collectedArtifactPath: collected, referenceImages: [{ path: image, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false }, implementationContract: supplierContract() });
   const approved = approveContext(result.taskPath);
   fs.writeFileSync(collected, JSON.stringify({ kind: "figma_collected_artifact", pages: [] }));
   const status = validateContext(approved.approvedPath, { requireApproved: true, phase: "implementation" });
   assert(status.errors.includes("collected_design_artifact_stale"));
+});
+
+test("implementation blocks a declared dropdown state when its required shadow is not confirmed", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "menu.json");
+  const image = path.join(root, "menu.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 }, children: [{ id: "57:100", name: "User menu open", type: "FRAME", effects: [] }] }] }] }] }));
+  const intake = { project: { key: "shadow-state-test", sourcePath: source }, task: { id: "task-shadow", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-shadow", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }], visualStates: [{ id: "user-menu-open", state: "open", trigger: "click-user-summary", targetNodeId: "57:100", required: true, requiredEffects: ["DROP_SHADOW"] }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, implementationContract: supplierContract() };
+  const result = buildContext(intake);
+  const validation = validateContext(result.taskPath, { phase: "implementation" });
+  assert(validation.errors.includes("required_visual_state_evidence_missing"));
+  assert.deepEqual(validation.context.design.visualStates[0].readiness.errors, ["visual_state_required_effect_missing"]);
 });
 
 test("prepare imports a supplied Figma JSON then builds and validates one draft", async () => {
@@ -105,7 +128,7 @@ test("prepare imports a supplied Figma JSON then builds and validates one draft"
   const intakePath = path.join(root, "POS-142.intake.json");
   fs.writeFileSync(visual, "reference");
   fs.writeFileSync(designJson, JSON.stringify({ nodes: { "57:99": { document: { id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } } } } }));
-  fs.writeFileSync(intakePath, JSON.stringify({ project: { key: "prepare-test", sourcePath: source }, task: { id: "POS-142", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-prepare", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, referenceImages: [{ path: visual, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false } }));
+  fs.writeFileSync(intakePath, JSON.stringify({ project: { key: "prepare-test", sourcePath: source }, task: { id: "POS-142", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-prepare", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: ["57:99"], targetFrame: { nodeId: "57:99", name: "Products" }, referenceImages: [{ path: visual, role: "visual_comparison", measurementAuthority: "figma_frame" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400, maxWidth: null, interpolationAllowed: false }, implementationContract: supplierContract() }));
   const result = await prepareContext({ intakePath, designJsonPath: designJson });
   assert.equal(result.collection.mode, "import");
   assert.equal(result.validation.valid, true);
@@ -117,4 +140,28 @@ test("prepare refuses Figma REST without explicit authorization", async () => {
   const intakePath = path.join(root, "POS-143.intake.json");
   fs.writeFileSync(intakePath, JSON.stringify({ project: { key: "prepare-rest-test", sourcePath: source }, task: { id: "POS-143", requestedPhase: "analysis" }, profile: { customer: "test-customer", name: "standard-prepare-rest", version: "1" }, design: { nodes: ["57:99"] } }));
   await assert.rejects(() => prepareContext({ intakePath, figmaUrl: "https://www.figma.com/design/file/Products?node-id=57-99" }), /allow-figma-rest/);
+});
+
+test("implementation is blocked when file and route ownership is absent", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "supplier.json");
+  const image = path.join(root, "supplier.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Supplier", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  const result = buildContext({ project: { key: "missing-contract-test", sourcePath: source }, task: { id: "task-8", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-missing-contract", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Supplier" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 } });
+  const validation = validateContext(result.taskPath, { phase: "implementation" });
+  assert(validation.errors.includes("implementation_contract_missing"));
+});
+
+test("static add-page contract rejects index.html as the primary page", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "supplier.json");
+  const image = path.join(root, "supplier.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Supplier", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  const invalidContract = { ...supplierContract(), filePlan: { primary: ["index.html"], create: ["supplier.html"], modify: [], forbid: [] } };
+  const result = buildContext({ project: { key: "index-primary-test", sourcePath: source }, task: { id: "task-9", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-index-primary", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Supplier" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, implementationContract: invalidContract });
+  const validation = validateContext(result.taskPath, { phase: "implementation" });
+  assert(validation.errors.includes("implementation_static_page_primary_mismatch"));
+  assert(validation.errors.includes("implementation_static_page_cannot_use_index_as_primary"));
 });

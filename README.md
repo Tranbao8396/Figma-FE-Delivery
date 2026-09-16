@@ -49,11 +49,7 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js prepare
 
 | Tài liệu | Dành cho | Khi nào đọc |
 | --- | --- | --- |
-| [GUIDE.md](GUIDE.md) | Người dùng, cache owner, Agent chuẩn bị context | Vận hành end-to-end hoặc tạo/refresh context. |
-| [Context Builder Guide](context-builder/GUIDE.md) | Người dùng, Agent chuẩn bị context | Cần command, output và approval flow. |
-| [Intake Guide](context-builder/INTAKE_GUIDE.vi.md) | Người điền intake, Agent tạo draft | Cần hiểu field, target frame, viewport, asset policy. |
-| [Design Collector Guide](design-collector/GUIDE.md) | Người dùng, Agent được phép thu thập design | Cần import/export JSON, REST, token hoặc cache. |
-| [Design Normalizer Guide](normalizers/design-normalizer/GUIDE.md) | Người review evidence | Cần hiểu target scoping, node filter, asset manifest. |
+| [GUIDE.md](GUIDE.md) | Người dùng, cache owner, Agent chuẩn bị context | Tài liệu chuẩn duy nhất: intake, CLI, Collector, Normalizer, approval, state/effect và refresh. |
 
 `GUIDE.md` là runbook, không phải phase artifact. Khi Agent đang làm theo approved context, Agent không cần nạp lại guide; nó chỉ đọc project context index và artifact của phase hiện tại.
 
@@ -94,10 +90,10 @@ Dùng khi chưa có approved context. Agent công khai `Mode: direct`. Nếu ng�
 ```text
 figma-frontend-agent/
   SKILL.md                         Root Skill duy nhất được Codex discover
-  GUIDE.md                         Runbook chung
-  context-builder/                 Unified figma-context CLI, intake schema, tests
-  design-collector/                Module adapter Figma và guide
-  normalizers/design-normalizer/   Module scope/filter và guide
+  GUIDE.md                         Tài liệu vận hành chuẩn duy nhất
+  context-builder/                 Unified figma-context CLI và tests
+  design-collector/                Module adapter Figma
+  normalizers/design-normalizer/   Module scope/filter
   collectors/                      Adapter source/rules local
   hooks/                           Compiler source/rules/index/layout/evidence
   playbooks/                       Policy context preparation và phase delivery
@@ -129,8 +125,12 @@ Foundation/Implementation chỉ được mở khi có:
 - Collected/normalized artifact chứa target frame.
 - Ảnh `visual_comparison` tại path ổn định.
 - Asset policy không cho Agent thay icon bằng CSS/text/SVG tự đoán.
+- `implementationContract` xác định delivery mode, route, entrypoint strategy và file plan.
+- Dropdown, modal, tooltip hoặc state mở cần đối chiếu phải khai báo trong `design.visualStates`. `DROP_SHADOW`/blur chỉ được triển khai từ effect Figma đã thu thập hoặc evidence được duyệt, không được tự chọn CSS gần đúng.
 
 `referenceViewport: 1400px` là kích thước để đo, không tự có nghĩa `max-width: 1400px`. Chọn đúng `layoutBehavior`: `min_width`, `fixed_canvas`, `fluid` hoặc `max_width` theo requirement/evidence.
+
+`implementationContract` chặn suy luận file/route: task thêm static page phải có `route.path` và `filePlan.primary` như `supplier.html`; `index.html` chỉ được replace khi `replace_single_static_entry` được phê duyệt rõ ràng.
 
 ## Command reference
 
@@ -142,7 +142,7 @@ Foundation/Implementation chỉ được mở khi có:
 | `validate --context <draft> --phase <phase>` | Kiểm tra draft trước approval. |
 | `approve --context <draft>` | Người dùng khóa approved baseline. |
 | `status --context <approved> --phase <phase>` | Kiểm tra trước mỗi phase Agent. |
-| `import`, `collect`, `normalize`, `build` | Command nâng cao/debug; xem Context Builder Guide. |
+| `import`, `collect`, `normalize`, `build` | Command nâng cao/debug; xem GUIDE.md. |
 
 ## Kiểm soát chi phí và token
 

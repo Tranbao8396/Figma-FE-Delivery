@@ -12,11 +12,17 @@ Implement a page or component slice without losing the design evidence, customer
 Before editing, read only the relevant sections of the approved task manifest, foundation manifest, and Figma context pack. Confirm:
 
 - The current page, state, target Figma frame/node, accepted viewport scope, acceptance criteria, and files/components expected to change.
+- Each required visual state and its confirmed effect facts. A dropdown/modal/popover surface must use the `boxShadow`, `filter`, or `backdropFilter` emitted by the layout context when present.
+- The approved `implementationContract`: delivery mode, route, entrypoint strategy, source-change policy, and file plan with primary/create/modify/forbid paths.
 - The applicable customer rules, local repository instructions, framework/version, and nearby component patterns.
 - Every high-impact ambiguity is resolved or explicitly marked as an approved boundary. Do not turn missing copy, data schema, business behavior, or visual state into an unrecorded guess.
 - A foundation baseline exists. If the tree, build chain, shell, shared token, or required primitive is missing, return to `figma-frontend-foundation` instead of rebuilding it ad hoc in a page slice.
 
 In context mode, require the approved task context to permit `implementation`. Its layout, viewport, rules, and assumption records are the input contract; a blocked or stale reference ends the phase rather than triggering direct intake.
+
+Treat `implementationContract` as a hard source-ownership boundary. Do not create a page, route, component file, or alternate app structure that is absent from its file plan. Do not replace, rename, or repurpose an existing entrypoint such as `index.html` unless `deliveryMode` is `replace_single_static_entry` and `entrypointStrategy` is explicitly `replace`.
+
+For `add_page_to_static_site`, implement the page in `filePlan.primary` and preserve the existing entrypoint's content. An entrypoint listed under `filePlan.modify` may be changed only for the declared navigation/shared-shell purpose. If the contract is absent, invalid, conflicts with the current tree, or leaves file/route ownership unclear, stop and report `implementation_contract_missing` or the specific contract conflict; do not infer a replacement strategy.
 
 Require exactly one confirmed target frame, an explicit viewport contract, and a local visual-comparison reference. Treat `referenceViewport` only as a measurement authority; use `layoutBehavior`, `minWidth`, and `maxWidth` exactly as declared. Do not infer `max-width` from a 1400px Figma frame.
 
@@ -36,6 +42,8 @@ Use evidence in this precedence order:
 6. A documented, low-impact default.
 
 For an icon or illustration, use an exported Figma asset or an approved local icon-library mapping recorded in the asset manifest. Do not recreate the visual with CSS pseudo-elements, text glyphs, or an approximate icon when asset evidence is absent; create an evidence refresh request instead.
+
+Do not add, remove, or tune a shadow, elevation, blur, overlay or clipping rule from taste. If a requested visual state declares `requiredEffects`, implement the corresponding confirmed layout-context value. If its node/effect evidence is absent, the state is blocked and requires an `evidence_refresh_request`.
 
 When two sources conflict, do not silently choose. Record the conflict and request clarification when it changes visible copy, behavior, scope, or acceptance. Use the newest confirmed visual reference for appearance and the customer decision for product behavior/copy.
 

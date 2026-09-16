@@ -132,6 +132,20 @@ test("build strips design-only nodes, flattens neutral wrappers and summarizes v
   assert.equal(context.design.tokens.web.layout.gap, undefined);
 });
 
+test("normalizes visible Figma effects into web style facts and reusable shadow tokens", () => {
+  const raw = rawFixture();
+  raw.pages[0].frames[0].children = [{
+    id: "menu", name: "User menu", type: "FRAME", effects: [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.16 } }]
+  }, {
+    id: "tooltip", name: "Tooltip", type: "FRAME", effects: [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.16 } }]
+  }];
+  const context = buildLayoutContext(raw, intake([{ screenId: "members", states: ["default"] }])).context;
+  const roots = context.design.screens[0].initialComponents.byState[0].roots;
+  assert.equal(roots[0].style.boxShadow, "0px 4px 12px 0px rgba(0, 0, 0, 0.16)");
+  assert.deepEqual(roots[0].style.effectTypes, ["DROP_SHADOW"]);
+  assert.deepEqual(context.design.tokens.web.layout.shadow, [{ css: "--shadow-1", value: "0px 4px 12px 0px rgba(0, 0, 0, 0.16)" }]);
+});
+
 test("missing raw node trees do not become inferred components", () => {
   const context = buildLayoutContext(rawFixture(), intake([{ screenId: "members", states: ["default"] }])).context;
   assert.equal(context.design.screens[0].initialComponents, undefined);

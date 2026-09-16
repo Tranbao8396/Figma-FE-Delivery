@@ -3,7 +3,7 @@ const fs = require("fs");
 const https = require("https");
 const path = require("path");
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const NODE_FIELDS = ["id", "name", "type", "visible", "opacity", "layoutMode", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "absoluteBoundingBox", "absoluteRenderBounds", "cornerRadius", "strokeWeight", "clipContent", "characters", "fontSize", "fontWeight", "fontName"];
 
@@ -36,6 +36,24 @@ function compactPaint(paint) {
   return result;
 }
 
+// Figma effects are retained as bounded visual facts; raw node payloads stay excluded.
+function compactEffect(effect) {
+  if (!effect || typeof effect !== "object") return null;
+  const result = {};
+  for (const key of ["type", "visible", "radius", "spread", "blendMode"]) if (effect[key] !== undefined) result[key] = effect[key];
+  if (effect.offset && typeof effect.offset === "object") {
+    const offset = {};
+    for (const key of ["x", "y"]) if (Number.isFinite(effect.offset[key])) offset[key] = effect.offset[key];
+    if (Object.keys(offset).length) result.offset = offset;
+  }
+  if (effect.color && typeof effect.color === "object") {
+    const color = {};
+    for (const key of ["r", "g", "b", "a"]) if (Number.isFinite(effect.color[key])) color[key] = effect.color[key];
+    if (Object.keys(color).length) result.color = color;
+  }
+  return result.type ? result : null;
+}
+
 // Adapter projection is transport-safe only. Semantic pruning belongs to Design Normalizer.
 function adaptNode(node, options, diagnostics, depth = 0) {
   if (!node || typeof node !== "object") return null;
@@ -43,6 +61,7 @@ function adaptNode(node, options, diagnostics, depth = 0) {
   for (const field of NODE_FIELDS) if (node[field] !== undefined) output[field] = node[field];
   if (Array.isArray(node.fills)) output.fills = node.fills.map(compactPaint).filter(Boolean);
   if (Array.isArray(node.strokes)) output.strokes = node.strokes.map(compactPaint).filter(Boolean);
+  if (Array.isArray(node.effects)) output.effects = node.effects.map(compactEffect).filter(Boolean);
   const children = Array.isArray(node.children) ? node.children : [];
   if (depth >= options.maxDepth) {
     if (children.length) diagnostics.truncatedDepthNodes += children.length;

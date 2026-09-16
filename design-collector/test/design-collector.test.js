@@ -29,6 +29,12 @@ test("keeps vector identity but removes vector paths in the transport-safe proje
   assert.equal(artifact.pages[0].frames[0].children[0].type, "VECTOR");
 });
 
+test("keeps bounded Figma shadow facts without retaining unrelated effect payload", () => {
+  const response = { nodes: { "5:7": { document: { id: "5:7", name: "User menu", type: "FRAME", effects: [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4, ignored: 1 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.16, ignored: 1 }, noise: "discarded" }] } } } };
+  const artifact = rawFromFigmaResponse(response, { sourceMode: "figma_rest", fileKey: "file", nodeIds: ["5:7"], requestCount: 1 }, { maxDepth: 4, maxChildren: 10 });
+  assert.deepEqual(artifact.pages[0].frames[0].children[0].effects, [{ type: "DROP_SHADOW", visible: true, offset: { x: 0, y: 4 }, radius: 12, spread: 0, color: { r: 0, g: 0, b: 0, a: 0.16 } }]);
+});
+
 test("imports local JSON without requiring a token", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-collector-input-"));
   const input = path.join(root, "input.json");

@@ -17,7 +17,7 @@ Read [quality-profile.md](references/quality-profile.md) before execution and [t
 
 ## Evidence-First Execution
 
-1. Capture application screenshots at every declared visual viewport/state using the recorded browser, DPR, zoom, fonts/assets, route and data seed.
+1. Capture application screenshots at every declared visual viewport/state using the recorded browser, DPR, zoom, fonts/assets, route and data seed. For menus, popovers, modals and tooltips, capture the open state separately and record shadow/elevation, blur, overlay, clipping and placement checks.
 2. Compare against the bundle reference using side-by-side/overlay first. Use pixel diff only when environments are comparable and tolerance/masks were approved.
 3. Run the functional, keyboard/accessibility, browser and edge/monkey matrix applicable to the implemented feature. Record actual results, not intended behavior.
 4. For responsive scope, test each supplied Desktop/Tablet/SP frame plus the declared breakpoint-boundary and long-content cases. For desktop-only scope, mobile/tablet is `not_in_scope`.

@@ -11,9 +11,12 @@ const { normalizeFile } = require("../../normalizers/design-normalizer/src/core"
 const { collectSourceInventory } = require("../../collectors/source-adapter/src/core");
 const { collectRulesInput } = require("../../collectors/rules-adapter/src/core");
 
-const VERSION = "1.1.0";
+const VERSION = "1.4.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const PHASES = ["analysis", "foundation", "implementation", "review", "qc"];
+const DELIVERY_MODES = new Set(["add_page_to_static_site", "replace_single_static_entry", "modify_existing_page", "add_route_to_existing_app", "component_slice"]);
+const SOURCE_CHANGE_POLICIES = new Set(["preserve_existing_entry", "modify_existing_entry_navigation_only", "replace_entrypoint_explicitly", "modify_existing_page_only"]);
+const ENTRYPOINT_STRATEGIES = new Set(["preserve", "modify_navigation_only", "replace"]);
 const SECRET_KEY = /^(?:password|secret|token|cookie|authorization|personalAccessToken|figmaPat)$/i;
 
 function stableSerialize(value) {
@@ -88,13 +91,121 @@ function requireIntake(intake) {
   }
 }
 
+function projectRelativePath(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[a-z]:\//i.test(normalized) || normalized.split("/").includes("..")) return null;
+  return normalized;
+}
+
+function implementationReadiness(intake) {
+  const contract = intake.implementationContract;
+  const errors = [];
+  if (!contract || typeof contract !== "object") return { contract: null, ready: false, errors: ["implementation_contract_missing"] };
+  if (!DELIVERY_MODES.has(contract.deliveryMode)) errors.push("implementation_delivery_mode_invalid");
+  if (!SOURCE_CHANGE_POLICIES.has(contract.sourceChangePolicy)) errors.push("implementation_source_change_policy_invalid");
+  if (!ENTRYPOINT_STRATEGIES.has(contract.entrypointStrategy)) errors.push("implementation_entrypoint_strategy_invalid");
+  const route = contract.route && typeof contract.route === "object" ? {
+    path: contract.route.path || null,
+    navigationHref: contract.route.navigationHref || null
+  } : null;
+  if (["add_page_to_static_site", "add_route_to_existing_app"].includes(contract.deliveryMode) && (!route || !projectRelativePath(route.path))) errors.push("implementation_route_missing");
+  const plan = contract.filePlan && typeof contract.filePlan === "object" ? contract.filePlan : null;
+  if (!plan) errors.push("implementation_file_plan_missing");
+  const normalizeList = (key) => Array.isArray(plan && plan[key]) ? plan[key].map(projectRelativePath) : null;
+  const primary = normalizeList("primary");
+  const create = normalizeList("create") || [];
+  const modify = normalizeList("modify") || [];
+  const forbid = normalizeList("forbid") || [];
+  if (!primary || !primary.length || primary.some((item) => !item)) errors.push("implementation_primary_files_missing");
+  for (const [name, values] of [["create", create], ["modify", modify], ["forbid", forbid]]) if (values.some((item) => !item)) errors.push(`implementation_${name}_path_invalid`);
+  if (primary && new Set(primary).size !== primary.length) errors.push("implementation_primary_duplicate_path");
+  if (new Set([...create, ...modify]).size !== create.length + modify.length) errors.push("implementation_create_modify_path_conflict");
+  if (forbid.some((item) => create.includes(item) || modify.includes(item) || primary && primary.includes(item))) errors.push("implementation_forbidden_path_conflict");
+  if (contract.deliveryMode === "add_page_to_static_site" && route && projectRelativePath(route.path) && primary && !primary.includes(projectRelativePath(route.path))) errors.push("implementation_static_page_primary_mismatch");
+  if (contract.deliveryMode === "replace_single_static_entry" && contract.entrypointStrategy !== "replace") errors.push("implementation_entrypoint_replacement_not_explicit");
+  if (contract.entrypointStrategy === "replace" && contract.deliveryMode !== "replace_single_static_entry") errors.push("implementation_unexpected_entrypoint_replacement");
+  if (contract.deliveryMode === "add_page_to_static_site" && primary && primary.includes("index.html")) errors.push("implementation_static_page_cannot_use_index_as_primary");
+  return {
+    contract: {
+      deliveryMode: contract.deliveryMode || null,
+      sourceChangePolicy: contract.sourceChangePolicy || null,
+      entrypointStrategy: contract.entrypointStrategy || null,
+      route,
+      filePlan: { primary: primary || [], create, modify, forbid }
+    },
+    ready: errors.length === 0,
+    errors
+  };
+}
+
+function findDesignNode(node, nodeId) {
+  if (!node || typeof node !== "object") return null;
+  if (node.id === nodeId || node.nodeId === nodeId) return node;
+  for (const child of node.children || []) {
+    const found = findDesignNode(child, nodeId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findNormalizedDesignNode(design, nodeId) {
+  if (!design || !nodeId) return null;
+  for (const page of design.pages || []) {
+    for (const frame of page.frames || []) {
+      for (const root of frame.children || []) {
+        const found = findDesignNode(root, nodeId);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
+}
+
+function visualStateReadiness(intake, normalizedDesign) {
+  const states = intake.design && Array.isArray(intake.design.visualStates) ? intake.design.visualStates : [];
+  const ids = new Set();
+  const records = states.map((state, index) => {
+    const id = typeof state.id === "string" && state.id.trim() ? state.id.trim() : null;
+    const nodeId = typeof state.targetNodeId === "string" && state.targetNodeId.trim() ? state.targetNodeId.trim() : null;
+    const requiredEffects = Array.isArray(state.requiredEffects) ? [...new Set(state.requiredEffects.filter((effect) => typeof effect === "string" && effect.trim()))] : [];
+    const referenceImagePath = typeof state.referenceImagePath === "string" && state.referenceImagePath.trim() ? state.referenceImagePath : null;
+    const node = findNormalizedDesignNode(normalizedDesign, nodeId);
+    const detectedEffects = [...new Set((node && node.effects || []).filter((effect) => effect && effect.visible !== false && typeof effect.type === "string").map((effect) => effect.type))];
+    const referenceAvailable = Boolean(referenceImagePath && fs.existsSync(referenceImagePath));
+    const nodeConfirmed = Boolean(node);
+    const effectsConfirmed = requiredEffects.length === 0 || requiredEffects.every((effect) => detectedEffects.includes(effect));
+    const errors = [];
+    if (!id || ids.has(id)) errors.push("visual_state_id_invalid_or_duplicate");
+    if (!nodeId) errors.push("visual_state_target_node_missing");
+    if (!nodeConfirmed && !referenceAvailable) errors.push("visual_state_evidence_missing");
+    if (requiredEffects.length && !nodeConfirmed) errors.push("visual_state_effect_node_missing");
+    if (!effectsConfirmed) errors.push("visual_state_required_effect_missing");
+    if (id) ids.add(id);
+    return {
+      id: id || `invalid-state-${index + 1}`,
+      state: typeof state.state === "string" && state.state.trim() ? state.state.trim() : "default",
+      trigger: typeof state.trigger === "string" && state.trigger.trim() ? state.trigger.trim() : null,
+      targetNodeId: nodeId,
+      required: state.required !== false,
+      requiredEffects,
+      referenceImage: referenceImagePath ? { path: referenceImagePath, available: referenceAvailable } : null,
+      designEvidence: { nodeConfirmed, detectedEffects },
+      readiness: { ready: errors.length === 0, errors }
+    };
+  });
+  const requiredRecords = records.filter((state) => state.required);
+  return { states: records, readiness: { requiredStateEvidenceConfirmed: requiredRecords.every((state) => state.readiness.ready), requiredStateCount: requiredRecords.length, blockedStateIds: requiredRecords.filter((state) => !state.readiness.ready).map((state) => state.id) } };
+}
+
 function visualReadiness(intake, normalizedDesign) {
   const target = intake.design && intake.design.targetFrame || null;
   const viewport = intake.viewportContract || null;
   const references = (intake.design && intake.design.referenceImages || []).map((item) => ({ path: item && item.path || null, role: item && item.role || "unknown", measurementAuthority: item && item.measurementAuthority || "unknown", available: Boolean(item && item.path && fs.existsSync(item.path)) }));
   const targetFrameConfirmed = Boolean(target && target.nodeId && normalizedDesign && Array.isArray(normalizedDesign.pages) && normalizedDesign.pages.some((page) => page.id === target.nodeId));
   const viewportContractConfirmed = Boolean(viewport && viewport.referenceViewport && Number.isFinite(viewport.referenceViewport.width) && Number.isFinite(viewport.referenceViewport.height) && ["pc_only", "responsive"].includes(viewport.deviceScope) && ["min_width", "fixed_canvas", "fluid", "max_width"].includes(viewport.layoutBehavior) && (viewport.layoutBehavior !== "min_width" || Number.isFinite(viewport.minWidth)));
-  return { targetFrame: target ? { nodeId: target.nodeId || null, name: target.name || null, presentInRawArtifact: targetFrameConfirmed } : null, viewportContract: viewport, referenceImages: references, readiness: { targetFrameConfirmed, viewportContractConfirmed, visualReferenceConfirmed: references.some((item) => item.role === "visual_comparison" && item.available) } };
+  const visualStates = visualStateReadiness(intake, normalizedDesign);
+  return { targetFrame: target ? { nodeId: target.nodeId || null, name: target.name || null, presentInRawArtifact: targetFrameConfirmed } : null, viewportContract: viewport, referenceImages: references, visualStates: visualStates.states, readiness: { targetFrameConfirmed, viewportContractConfirmed, visualReferenceConfirmed: references.some((item) => item.role === "visual_comparison" && item.available), ...visualStates.readiness } };
 }
 
 function hasSecret(value, trail = "") {
@@ -139,7 +250,8 @@ function buildContext(intake) {
   if (profile !== existingProfile) writeJson(profileOutput, profile);
 
   const sourceOutput = path.join(projectRoot, "source", "source-context.json");
-  const source = cacheDocument(sourceOutput, (previous) => buildSourceContext(collectSourceInventory(path.resolve(intake.project.sourcePath)), { repository: path.resolve(intake.project.sourcePath), previousContext: previous }));
+  const collectedSource = collectSourceInventory(path.resolve(intake.project.sourcePath));
+  const source = cacheDocument(sourceOutput, (previous) => buildSourceContext(collectedSource, { repository: path.resolve(intake.project.sourcePath), previousContext: previous }));
   const rulesOutput = path.join(projectRoot, "rules", "rules-context.json");
   const rules = cacheDocument(rulesOutput, (previous) => buildRulesContext(collectRulesInput(profile), { previousContext: previous }));
 
@@ -231,6 +343,7 @@ function buildContext(intake) {
 
   const taskDraftOutput = path.join(taskRoot, "task-context.draft.json");
   const visual = visualReadiness(intake, normalizedDesign);
+  const implementation = implementationReadiness(intake);
   const taskPayload = {
     schemaVersion: VERSION,
     kind: "task_context",
@@ -245,6 +358,7 @@ function buildContext(intake) {
       nodes: intake.design && intake.design.nodes || [],
       targetFrame: visual.targetFrame,
       referenceImages: visual.referenceImages,
+      visualStates: visual.visualStates,
       collectedArtifactPath: collectedArtifact ? path.resolve(collectedArtifact) : null,
       collectedArtifactFingerprint: collectedArtifact && fs.existsSync(collectedArtifact) ? documentHash(readJson(collectedArtifact)) : null,
       normalizedArtifactPath,
@@ -253,6 +367,8 @@ function buildContext(intake) {
       rawArtifactFingerprint: collectedArtifact && fs.existsSync(collectedArtifact) ? documentHash(readJson(collectedArtifact)) : null
     },
     viewportContract: visual.viewportContract,
+    implementationContract: implementation.contract,
+    implementationReadiness: { ready: implementation.ready, errors: implementation.errors },
     assetPolicy: intake.assetPolicy || { icons: "figma_asset_or_approved_library_only", forbidCssRecreationWithoutEvidence: true },
     visualReadiness: visual.readiness,
     acceptanceCriteria: intake.acceptanceCriteria || [],
@@ -309,6 +425,8 @@ function validationErrors(context, contextPath, options = {}) {
       if (!context.visualReadiness || !context.visualReadiness.targetFrameConfirmed) errors.push("target_frame_not_confirmed");
       if (!context.visualReadiness || !context.visualReadiness.viewportContractConfirmed) errors.push("viewport_contract_not_confirmed");
       if (!context.visualReadiness || !context.visualReadiness.visualReferenceConfirmed) errors.push("visual_reference_not_confirmed");
+      if (!context.visualReadiness || !context.visualReadiness.requiredStateEvidenceConfirmed) errors.push("required_visual_state_evidence_missing");
+      if (!context.implementationReadiness || !context.implementationReadiness.ready) errors.push(...(context.implementationReadiness && context.implementationReadiness.errors || ["implementation_contract_missing"]));
     }
   }
   if (options.requireApproved) {

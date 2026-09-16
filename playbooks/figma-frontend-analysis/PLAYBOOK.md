@@ -30,13 +30,13 @@ If a missing fact changes the estimate or deliverable, record it as an assumptio
 3. Read Figma primarily through the web/share link and reference images. Identify exact file/page/frame/node, target viewport, visible variants, typography, spacing, asset requirements, and component relationships. When MCP is needed, use `figma-design-intake-cache` to create a request plan and context pack, then create/reuse a task-local snapshot instead of repeatedly fetching context.
 4. For an approved static-layout task, invoke the `figma-layout-context-hook` compiler CLI after intake to compile target screens, framework and coding-rule digest into compact JSON. Treat `inferred` or `missing` fields as assumptions/blockers, not confirmed design facts.
 5. Build a rule-compliance snapshot: naming, architecture, styling, state/data, test, accessibility, allowed dependencies, and delivery format.
-6. Build a design inventory. Separate what is visible, what is inferred, and what is missing.
+6. Build a design inventory. Separate what is visible, what is inferred, and what is missing. For every requested dropdown, modal, tooltip, popover or overlay, record its open state, trigger, target node/reference, surface effect (shadow/blur), clipping and positioning evidence.
 
 Read [task-manifest.md](references/task-manifest.md) when drafting the analysis artifact.
 
 ## Ambiguity and Scope Control
 
-Create an ambiguity register for inconsistent labels, placeholder content, unspecified behavior, missing states, missing assets, unconfirmed breakpoints, and unclear data rules.
+Create an ambiguity register for inconsistent labels, placeholder content, unspecified behavior, missing states, missing assets, unconfirmed breakpoints, unclear data rules, and unconfirmed surface effects. A visible dropdown with no open-state/effect evidence is a visual-state blocker when its shadow, blur, elevation or overlay is in scope.
 
 - Mark an item `blocker` when it changes business behavior, data shape, user-visible copy, page scope, or visual acceptance criteria.
 - Mark an item `defaultable` only when a documented standard choice will not materially change scope. State the default and its rationale.

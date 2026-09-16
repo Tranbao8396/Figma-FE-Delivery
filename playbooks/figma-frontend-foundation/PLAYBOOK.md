@@ -12,6 +12,7 @@ Establish a verified frontend foundation so later page work has stable files, en
 Require these facts before creating or changing files:
 
 - A task manifest or compact equivalent with delivery mode, viewport scope, framework/stack, relevant customer rules, component/file plan, and material ambiguity decisions.
+- For context mode, an approved `implementationContract` when foundation creates a page, route, entrypoint, or reusable source structure.
 - A local repository path for `implement_existing_repo`, or explicit authorization to create a scaffold for `scaffold_new_repo`.
 - A known package manager and build/runtime path, from the customer or project evidence.
 
@@ -29,12 +30,14 @@ Read [source-tree-contract.md](references/source-tree-contract.md) before decidi
 4. Exclude `node_modules`, build output, caches, coverage, and binary assets from ordinary tree scans. Inspect them only to diagnose a specific failure.
 5. In an existing repository, preserve its directory conventions and do not recreate a parallel app structure. In a new scaffold, create only paths required by the selected stack and manifest.
 
+Treat entrypoint replacement, page creation and route ownership as material decisions. If the contract does not explicitly authorize the requested source surface, foundation may report the missing contract but must not choose `index.html`, a new page file, or a routing approach on its own.
+
 ## Foundation Scope
 
 Build in this order, stopping after the approved foundation boundary:
 
 1. Package/build setup, entry points, scripts, ignore rules, and asset handling appropriate to the stack.
-2. Design tokens and base styles: color, typography, spacing, radius, layout dimensions, focus treatment, and reset/base rules.
+2. Design tokens and base styles: color, typography, spacing, radius, confirmed elevation/shadow, layout dimensions, focus treatment, and reset/base rules. Create a reusable shadow token only when the same confirmed effect is repeated; keep one-off effects local to their component.
 3. Semantic application shell: `header`, navigation, `main`, one active-page `h1`, and viewport constraints from the manifest.
 4. Reusable primitives/components required across pages: buttons, fields, selects, panels, cards, tables, toolbar, pager, menu, and placeholders only when indicated by the design.
 5. Minimal rendering or routing shell needed to prove page switching/layout, without implementing page-specific CRUD, calculations, export, or data persistence.

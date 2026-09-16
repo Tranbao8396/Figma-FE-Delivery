@@ -14,7 +14,7 @@ Use `context` mode only when the user supplies a path to `task-context.approved.
 1. Determine the requested execution phase from the user request, then run `node D:/agents/figma-frontend-agent/context-builder/bin/figma-context.js status --context <path> --phase <phase>`.
 2. Require `valid: true`, `status: approved`, a valid checksum, current profile/project/index references, and the current context-index phase gate. `requestedPhase` is the initial approved phase, not a requirement to rebuild the baseline for every later phase.
 3. Read the context index reference first. Load only the artifact IDs named for the requested phase.
-4. Treat the approved task context as the source of scope, target frame, viewport contract, design references, acceptance criteria, assumptions, and permitted phase. Treat profile/project artifacts as referenced, read-only facts.
+4. Treat the approved task context as the source of scope, target frame, viewport contract, implementation contract, design references, acceptance criteria, assumptions, and permitted phase. Treat profile/project artifacts as referenced, read-only facts.
 5. If validation fails, phase is blocked, or evidence is stale, stop the affected phase. Report the exact artifact or evidence refresh needed. Do not switch to direct mode, rebuild context, approve context, or call Figma MCP to work around the gate.
 
 Context mode may write new implementation evidence, review findings, and QC reports only in the task context's `evidence/` or `reports/` area. It must not modify the approved baseline.
@@ -28,7 +28,7 @@ Direct mode may use local compilers and the Figma request planner. If the user e
 ## Phase Mapping
 
 - `analysis`: use approved scope, source/rules artifacts, design references, and known gaps. Stop after planning when scope says analysis only.
-- `foundation` and `implementation`: require their phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, and a local visual-comparison image. Never interpret a reference viewport as `max-width` unless the contract says so.
+- `foundation` and `implementation`: require their phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, a local visual-comparison image, and a ready implementation contract. Never interpret a reference viewport as `max-width` unless the contract says so; never infer page/route/file ownership.
 - `review` and `qc`: require their phase gate plus evidence links and the task reports; never fetch Figma directly.
 
 ## Terminology

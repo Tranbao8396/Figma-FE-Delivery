@@ -12,9 +12,8 @@ This is the compact Agent policy for preparing a context draft. `GUIDE.md` is th
 Use this playbook only if the user explicitly asks to create, rebuild, refresh, validate, or prepare a draft context.
 
 1. State `Mode: direct (context preparation)`.
-2. Read `context-builder/INTAKE_GUIDE.vi.md` for the intake contract and `context-builder/GUIDE.md` for the unified CLI contract.
-3. Read `design-collector/GUIDE.md` only if design collection/import/refresh is required; read `normalizers/design-normalizer/GUIDE.md` only to investigate target scope/filter diagnostics.
-4. Read the relevant part of root `GUIDE.md` only for an end-to-end operational question; do not load it during later delivery phases.
+2. Read only the relevant sections of root `GUIDE.md`: Intake Contract, Flow hang ngay, and Visual state/shadow when applicable.
+3. Do not load `GUIDE.md` during later delivery phases unless the user asks to create or refresh a context.
 
 ## Procedure
 

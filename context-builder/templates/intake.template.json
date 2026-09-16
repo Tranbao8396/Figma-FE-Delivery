@@ -31,7 +31,8 @@
     "collectedArtifactPath": null,
     "normalizedArtifactPath": null,
     "rawArtifactPath": null,
-    "referenceImages": [{ "path": "D:\\evidence\\pos-order-screen.png", "role": "visual_comparison", "measurementAuthority": "figma_frame" }]
+    "referenceImages": [{ "path": "D:\\evidence\\pos-order-screen.png", "role": "visual_comparison", "measurementAuthority": "figma_frame" }],
+    "visualStates": []
   },
   "viewportContract": {
     "referenceViewport": { "width": 1400, "height": 887 },
@@ -42,6 +43,18 @@
     "interpolationAllowed": false
   },
   "assetPolicy": { "icons": "figma_asset_or_approved_library_only", "forbidCssRecreationWithoutEvidence": true },
+  "implementationContract": {
+    "deliveryMode": "add_page_to_static_site",
+    "sourceChangePolicy": "preserve_existing_entry",
+    "entrypointStrategy": "modify_navigation_only",
+    "route": { "path": "supplier.html", "navigationHref": "supplier.html" },
+    "filePlan": {
+      "primary": ["supplier.html"],
+      "create": ["supplier.html", "src/pages/_supplier.scss", "src/pages/supplier.js"],
+      "modify": ["index.html", "src/styles.scss", "src/app.js"],
+      "forbid": []
+    }
+  },
   "acceptanceCriteria": [],
   "assumptions": []
 }
