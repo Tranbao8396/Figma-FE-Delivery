@@ -1,7 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", "coverage", ".next"]);
+// Runtime reports belong in the task context and must not invalidate source baselines.
+const IGNORED_DIRECTORIES = new Set(["node_modules", ".git", "dist", "build", "coverage", ".next", "reports"]);
 const WORKSPACE_ONLY_FILES = new Set([".gitignore", "readme.md", "license", "license.md", ".editorconfig"]);
 
 function classifySourceState(files, packageJson) {

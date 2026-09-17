@@ -1,13 +1,16 @@
 {
   "name": "figma-context-builder",
-  "version": "1.9.0",
+  "version": "1.14.0",
   "private": true,
   "description": "Unified preparation CLI for the Figma Frontend Agent",
   "bin": {
     "figma-context": "bin/figma-context.js"
   },
   "scripts": {
-    "test": "node test/context-builder.test.js"
+    "test": "node test/context-builder.test.js && node test/cli.test.js"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
   },
   "engines": {
     "node": ">=18"

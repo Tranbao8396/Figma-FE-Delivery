@@ -56,6 +56,10 @@
     }
   },
   "scaffoldContract": null,
+  "qualityPlan": {
+    "visualDiff": { "channelThreshold": 16 },
+    "cases": []
+  },
   "acceptanceCriteria": [],
   "assumptions": []
 }

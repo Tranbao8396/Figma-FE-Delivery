@@ -11,13 +11,14 @@ Classify every request as exactly one mode before selecting a delivery phase. An
 
 Use `context` mode only when the user supplies a path to `task-context.approved.json` and asks to use it.
 
-1. Determine the requested execution phase from the user request, then run `node D:/agents/figma-frontend-agent/context-builder/bin/figma-context.js status --context <path> --phase <phase>`.
-2. Require `valid: true`, `status: approved`, a valid checksum, current profile/project/index references, and the current context-index phase gate. `requestedPhase` is the initial approved phase, not a requirement to rebuild the baseline for every later phase.
-3. Read the context index reference first. Load only the artifact IDs named for the requested phase.
-4. Treat the approved task context as the source of scope, target frame, viewport contract, implementation contract, design references, acceptance criteria, assumptions, and permitted phase. Treat profile/project artifacts as referenced, read-only facts.
-5. If validation fails, phase is blocked, or evidence is stale, stop the affected phase. Report the exact artifact or evidence refresh needed. Do not switch to direct mode, rebuild context, approve context, or call Figma MCP to work around the gate.
+1. Determine the requested execution phase. For `analysis`, `foundation` and `implementation`, run `figma-context context status --context <path> --phase <phase>` with strict source freshness. For Review/QC after code has changed, use `figma-context context status --context <path> --phase <phase> --allow-source-drift`; this is limited to the post-implementation evidence flow.
+2. Require `valid: true`, `status: approved`, a valid checksum, current profile/project/index references, current design artifacts, and the applicable context-index phase gate. `--allow-source-drift` only suppresses `source_context_stale`; it never bypasses the other checks. `requestedPhase` is the initial approved phase, not a requirement to rebuild the baseline for every later phase.
+3. When the user also supplies `amendment.approved.json`, run `figma-context amend status --amendment <path> --phase <phase>`. Require a valid checksum, matching base-context hash/task ID and allowed phase. Use its bounded overlay only; draft amendments are not instructions.
+4. Read the context index reference first. Load only the project artifact IDs named for the requested phase. For `review`, require the approved task's `reportRefs` and review evidence gate. For QC preparation, require reportRefs plus review-phase evidence links; QC evidence gate applies only after capture and `link-evidence --phase qc`.
+5. Treat the approved task context plus an optional approved Amendment as the source of scope, target frame, viewport contract, implementation contract, design references, acceptance criteria, assumptions, and permitted phase. Treat profile/project artifacts as referenced, read-only facts.
+6. If validation fails, phase is blocked, or evidence is stale, stop the affected phase. Report the exact artifact or evidence refresh needed. Do not switch to direct mode, rebuild context, approve context, or call Figma MCP to work around the gate.
 
-Context mode may write new implementation evidence, review findings, and QC reports only in the task context's `evidence/` or `reports/` area. It must not modify the approved baseline.
+Context mode may write new implementation evidence, review findings, and QC reports only under the task context's `reports/evidence/` or `reports/` area. It must not modify the approved baseline.
 
 ## Direct Mode
 
@@ -30,7 +31,8 @@ Direct mode may use local compilers and the Figma request planner. If the user e
 - `analysis`: use approved scope, source/rules artifacts, design references, and known gaps. Stop after planning when scope says analysis only.
 - `foundation`: require its phase gate, one target frame present in the normalized design artifact, an explicit viewport contract, and a local visual-comparison image. For `empty_directory`, `workspace_only`, or `partial_scaffold`, require a ready `scaffoldContract`; honor its `owner` and do not create source when ownership is `user` or `external`.
 - `implementation`: require `sourceState=existing_project`, a Foundation manifest with the current source fingerprint when the task has scaffold lineage, and a ready implementation contract. Never interpret a reference viewport as `max-width` unless the contract says so; never infer page/route/file ownership.
-- `review` and `qc`: require their phase gate plus evidence links and the task reports; never fetch Figma directly.
+- `review`: require current `designEvidenceLedger`, `qualityEvidenceBundle`, and review-phase `evidenceLinks` in `reportRefs`; every link must cover Figma node, source mapping and declared test case.
+- `qc`: preparation requires review-phase `evidenceLinks` and an approved QC plan; run capture first, then generate QC-phase `evidenceLinks` and run status before declaring QC-ready. At assessment time require QC-phase links and one rendered screenshot per required target. Never fetch Figma directly.
 
 ## Terminology
 

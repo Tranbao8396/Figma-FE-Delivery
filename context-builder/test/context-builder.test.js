@@ -7,6 +7,10 @@ process.env.FIGMA_CONTEXT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "figma-co
 const { buildContext, validateContext, approveContext, initializeFoundationManifest, finalizeFoundationManifest, transitionToImplementation } = require("../src/core");
 const { prepareContext } = require("../src/prepare");
 const { loadRootEnv } = require("../src/env");
+const { initializeEvidence, linkEvidence, migrateLegacyEvidence } = require("../src/evidence");
+const { buildChangeManifest } = require("../src/review");
+const { buildQcPlan } = require("../src/qc");
+const { buildAmendment, validateAmendment, approveAmendment, resolveEffectiveContext } = require("../src/amendment");
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "figma-context-"));
@@ -80,6 +84,122 @@ test("build reuses profile/project artifacts and allows an analysis-only approva
   assert.equal(status.valid, true);
 });
 
+test("stores evidence reports beside the task context and migrates a source ledger without screenshots", () => {
+  const { root, source } = fixture();
+  const result = buildContext({ project: { key: "evidence-storage", sourcePath: source }, task: { id: "task-evidence", requestedPhase: "analysis" }, profile: { customer: "test-customer", name: "evidence-standard", version: "1" }, design: { nodes: [] } });
+  assert.throws(() => initializeEvidence(result.taskPath), /approved, current context/);
+  const paths = initializeEvidence(result.taskPath, { preparation: true });
+  assert(fs.existsSync(paths.ledgerPath));
+  assert(fs.existsSync(paths.bundlePath));
+  assert(!paths.ledgerPath.startsWith(source));
+  const context = JSON.parse(fs.readFileSync(result.taskPath, "utf8"));
+  assert.equal(context.reportRefs.designEvidenceLedger, paths.ledgerPath);
+
+  const legacyPath = path.join(source, "reports", "design-evidence-ledger.json");
+  fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+  fs.writeFileSync(legacyPath, JSON.stringify({ entries: [{ id: "dashboard", figmaNodeId: "47:8", referenceImage: "reference.png", viewport: { width: 1400, height: 887 }, code: ["src/dashboard.html"], assumptions: ["legacy"], deviations: [] }] }));
+  const migrated = migrateLegacyEvidence(result.taskPath, legacyPath, true, { preparation: true });
+  assert.equal(migrated.sourceRemoved, true);
+  assert.equal(fs.existsSync(legacyPath), false);
+  const ledger = JSON.parse(fs.readFileSync(paths.ledgerPath, "utf8"));
+  assert.equal(ledger.entries[0].figma.nodeId, "47:8");
+  assert.equal(ledger.entries[0].renderedScreenshot, null);
+  assert.equal(ledger.entries[0].acceptance, "pending");
+});
+
+test("uses task-local evidence links to gate review and rendered screenshots to gate QC", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "review-design.json");
+  const image = path.join(root, "review-reference.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  const build = buildContext({ project: { key: "evidence-gate", sourcePath: source }, task: { id: "task-evidence-gate", requestedPhase: "implementation", allowedPhases: ["implementation", "review", "qc"] }, profile: { customer: "test-customer", name: "evidence-gate-standard", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, implementationContract: supplierContract() });
+  const approved = approveContext(build.taskPath);
+  assert(validateContext(approved.approvedPath, { requireApproved: true, phase: "review" }).errors.includes("task_report_missing:designEvidenceLedger"));
+  const paths = initializeEvidence(approved.approvedPath, { phase: "implementation" });
+  const ledger = JSON.parse(fs.readFileSync(paths.ledgerPath, "utf8"));
+  ledger.entries.push({ id: "products/default", screenState: "products/default", viewport: { width: 1400, height: 887 }, figma: { nodeId: "57:99", referenceImage: image }, codeMapping: ["supplier.html"], testCases: ["TC-001"], renderedScreenshot: null, confidence: "pending_comparison", assumptions: [], deviations: [], acceptance: "pending" });
+  fs.writeFileSync(paths.ledgerPath, JSON.stringify(ledger));
+  linkEvidence(approved.approvedPath, { phase: "review" });
+  assert.equal(validateContext(approved.approvedPath, { requireApproved: true, phase: "review" }).valid, true);
+  assert(validateContext(approved.approvedPath, { requireApproved: true, phase: "qc" }).errors.includes("task_evidence_links_phase_mismatch"));
+
+  const screenshot = path.join(paths.screenshotsRoot, "products.png");
+  fs.writeFileSync(screenshot, "render");
+  const bundle = JSON.parse(fs.readFileSync(paths.bundlePath, "utf8"));
+  bundle.visualComparisonMatrix.push({ screenState: "products/default", renderTarget: screenshot, acceptanceStatus: "captured_pending_comparison" });
+  fs.writeFileSync(paths.bundlePath, JSON.stringify(bundle));
+  ledger.entries[0].renderedScreenshot = { path: screenshot };
+  fs.writeFileSync(paths.ledgerPath, JSON.stringify(ledger));
+  linkEvidence(approved.approvedPath, { phase: "qc" });
+  assert.equal(validateContext(approved.approvedPath, { requireApproved: true, phase: "qc" }).valid, true);
+});
+
+test("builds a compact review manifest and QC plan from approved context contracts", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "review-qc-design.json");
+  const image = path.join(root, "review-qc-reference.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  fs.writeFileSync(path.join(source, "supplier.html"), "<main></main>");
+  fs.writeFileSync(path.join(source, "index.html"), "<main></main>");
+  fs.writeFileSync(path.join(source, "src", "styles.scss"), ".page {}\n");
+  const build = buildContext({ project: { key: "review-qc-plan", sourcePath: source }, task: { id: "task-review-qc-plan", requestedPhase: "implementation", allowedPhases: ["implementation", "review", "qc"] }, profile: { customer: "test-customer", name: "review-qc-standard", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, implementationContract: supplierContract(), qualityPlan: { cases: [{ id: "menu-open", screen: "products", state: "menu-open", viewport: { width: 1800, height: 1100 }, testCases: ["TC-MENU-001"], actions: [{ type: "click", selector: ".user-menu" }], assertions: [{ type: "element", selector: ".user-menu", visible: true }] }] } });
+  const approved = approveContext(build.taskPath);
+  const paths = initializeEvidence(approved.approvedPath, { phase: "implementation" });
+  const ledger = JSON.parse(fs.readFileSync(paths.ledgerPath, "utf8"));
+  ledger.entries.push({ id: "products/default", screenState: "products/default", viewport: { width: 1400, height: 887 }, figma: { nodeId: "57:99", referenceImage: image }, codeMapping: ["supplier.html"], testCases: ["TC-001"], renderedScreenshot: null, confidence: "pending_comparison", assumptions: [], deviations: [], acceptance: "pending" });
+  fs.writeFileSync(paths.ledgerPath, JSON.stringify(ledger));
+  linkEvidence(approved.approvedPath, { phase: "review" });
+  const review = buildChangeManifest(approved.approvedPath, { changedFiles: ["supplier.html", "outside.js"] });
+  assert.equal(review.findingCount, 1);
+  const reviewDocument = JSON.parse(fs.readFileSync(review.manifestPath, "utf8"));
+  assert.equal(reviewDocument.findings[0].code, "changed_file_outside_contract");
+  assert.equal(reviewDocument.files.find((file) => file.path === "supplier.html").sha256.length, 64);
+  const qc = buildQcPlan(approved.approvedPath, { url: "http://127.0.0.1:3001/supplier.html", screen: "products", testCases: ["TC-BASELINE"] });
+  const qcDocument = JSON.parse(fs.readFileSync(qc.planPath, "utf8"));
+  assert.equal(qcDocument.cases.length, 2);
+  assert.deepEqual(qcDocument.cases[1].viewport, { width: 1800, height: 1100 });
+  assert.throws(() => buildContext({ project: { key: "quality-plan-narrow", sourcePath: source }, task: { id: "task-quality-plan-narrow", requestedPhase: "analysis" }, profile: { customer: "test-customer", name: "quality-plan-narrow", version: "1" }, design: { nodes: [] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, qualityPlan: { cases: [{ id: "too-narrow", viewport: { width: 390, height: 844 } }] } }), /narrower than pc_only minWidth/);
+});
+
+test("approves a scoped amendment without mutating the base context and merges it into review and QC", () => {
+  const { root, source } = fixture();
+  const raw = path.join(root, "amendment-design.json");
+  const image = path.join(root, "amendment-reference.png");
+  fs.writeFileSync(image, "reference");
+  fs.writeFileSync(raw, JSON.stringify({ pages: [{ id: "57:99", frames: [{ nodeId: "57:99", children: [{ id: "57:99", name: "Products", type: "FRAME", absoluteBoundingBox: { width: 1400, height: 887 } }] }] }] }));
+  fs.writeFileSync(path.join(source, "supplier.html"), "<main></main>");
+  fs.writeFileSync(path.join(source, "index.html"), "<main></main>");
+  fs.writeFileSync(path.join(source, "src", "styles.scss"), ".page {}\n");
+  const build = buildContext({ project: { key: "amendment-test", sourcePath: source }, task: { id: "task-amendment", requestedPhase: "implementation", allowedPhases: ["implementation", "review", "qc"] }, profile: { customer: "test-customer", name: "amendment-standard", version: "1" }, design: { targetFrame: { nodeId: "57:99", name: "Products" }, rawArtifactPath: raw, referenceImages: [{ path: image, role: "visual_comparison" }] }, viewportContract: { referenceViewport: { width: 1400, height: 887 }, deviceScope: "pc_only", layoutBehavior: "min_width", minWidth: 1400 }, implementationContract: supplierContract() });
+  const approved = approveContext(build.taskPath);
+  const evidencePaths = initializeEvidence(approved.approvedPath, { phase: "implementation" });
+  const ledger = JSON.parse(fs.readFileSync(evidencePaths.ledgerPath, "utf8"));
+  ledger.entries.push({ id: "products/default", screenState: "products/default", viewport: { width: 1400, height: 887 }, figma: { nodeId: "57:99", referenceImage: image }, codeMapping: ["supplier.html"], testCases: ["TC-001"], renderedScreenshot: null, confidence: "pending_comparison", assumptions: [], deviations: [], acceptance: "pending" });
+  fs.writeFileSync(evidencePaths.ledgerPath, JSON.stringify(ledger));
+  linkEvidence(approved.approvedPath, { phase: "review" });
+  const amendment = buildAmendment({ id: "AMD-001-menu", baseContext: { path: approved.approvedPath }, changeType: "evidence_backed_scope_extension", allowedPhases: ["implementation", "review", "qc"], reason: "Add the evidenced user-menu open state.", designEvidence: { nodes: ["57:99"], referenceImages: [{ path: image }] }, contractDelta: { visualStates: [{ id: "user-menu-open", state: "open", trigger: "click-user-summary", targetNodeId: "57:99", required: true }], filePlan: { modify: ["src/pages/menu.js"] } }, qualityPlanDelta: { cases: [{ id: "user-menu-open", screen: "products", state: "open", viewport: { width: 1400, height: 887 }, testCases: ["TC-MENU-001"], actions: [{ type: "click", selector: ".user-trigger" }], assertions: [{ type: "element", selector: ".user-menu", visible: true }] }] } });
+  assert.equal(validateAmendment(amendment.draftPath).valid, true);
+  const amendmentApproved = approveAmendment(amendment.draftPath);
+  const effective = resolveEffectiveContext(approved.approvedPath, amendmentApproved.approvedPath, "implementation");
+  assert.equal(effective.context.design.visualStates.at(-1).id, "user-menu-open");
+  assert(effective.context.implementationContract.filePlan.modify.includes("src/pages/menu.js"));
+  const baseContext = JSON.parse(fs.readFileSync(approved.approvedPath, "utf8"));
+  assert.equal(baseContext.design.visualStates.length, 0);
+  assert.equal(baseContext.implementationContract.filePlan.modify.includes("src/pages/menu.js"), false);
+  linkEvidence(approved.approvedPath, { phase: "review", amendmentPath: amendmentApproved.approvedPath });
+  const linkedEvidence = JSON.parse(fs.readFileSync(evidencePaths.linksPath, "utf8"));
+  assert.equal(linkedEvidence.amendmentRefs[0].id, "AMD-001-menu");
+  const review = buildChangeManifest(approved.approvedPath, { amendmentPath: amendmentApproved.approvedPath, changedFiles: ["src/pages/menu.js"] });
+  const reviewDocument = JSON.parse(fs.readFileSync(review.manifestPath, "utf8"));
+  assert.equal(reviewDocument.amendmentRefs[0].id, "AMD-001-menu");
+  const qc = buildQcPlan(approved.approvedPath, { amendmentPath: amendmentApproved.approvedPath, url: "http://127.0.0.1:3001/supplier.html" });
+  const qcDocument = JSON.parse(fs.readFileSync(qc.planPath, "utf8"));
+  assert.equal(qcDocument.amendmentRefs[0].id, "AMD-001-menu");
+  assert(qcDocument.cases.some((testCase) => testCase.id === "user-menu-open"));
+});
+
 test("approval rejects a task whose requested phase is blocked", () => {
   const { source } = fixture();
   const result = buildContext({ project: { key: "blocked-test", sourcePath: source }, task: { id: "task-2", requestedPhase: "implementation" }, profile: { customer: "test-customer", name: "standard-blocked", version: "1", codingRules: ["Use semantic HTML."] }, design: { nodes: [] } });
@@ -106,6 +226,8 @@ test("validation marks an approved context stale when its source changes", () =>
   fs.writeFileSync(path.join(source, "src", "new-file.js"), "export const changed = true;");
   const status = validateContext(approved.approvedPath, { requireApproved: true });
   assert(status.errors.includes("source_context_stale"));
+  const postImplementationStatus = validateContext(approved.approvedPath, { requireApproved: true, allowSourceDrift: true });
+  assert.equal(postImplementationStatus.valid, true, JSON.stringify(postImplementationStatus.errors));
 });
 
 test("validation marks an approved analysis context stale when its raw design artifact changes", () => {
@@ -117,6 +239,8 @@ test("validation marks an approved analysis context stale when its raw design ar
   fs.writeFileSync(raw, '{"changed":true}');
   const status = validateContext(approved.approvedPath, { requireApproved: true });
   assert(status.errors.includes("design_artifact_stale"));
+  const postImplementationStatus = validateContext(approved.approvedPath, { requireApproved: true, allowSourceDrift: true });
+  assert(postImplementationStatus.errors.includes("design_artifact_stale"));
 });
 
 test("implementation requires a target frame, viewport contract, and visual reference", () => {
@@ -196,6 +320,8 @@ test("transitions an approved foundation baseline into a fresh implementation co
   const context = transitioned.validation.context || validateContext(transitioned.validation.taskPath).context;
   assert.equal(context.lineage.foundationContextPath, foundationApproved.approvedPath);
   assert.equal(context.projectRef.sourceFingerprint, finalized.sourceFingerprint);
+  assert.equal(context.reportRefs.foundationManifest, manifestPath);
+  assert(context.reportRefs.designEvidenceLedger.includes(path.join("implementation-1", "reports", "evidence")));
 });
 
 test("transition preserves inherited artifacts when implementation intake uses null and retargets a nested frame", () => {

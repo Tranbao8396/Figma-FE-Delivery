@@ -18,7 +18,7 @@ Before editing, read only the relevant sections of the approved task manifest, f
 - Every high-impact ambiguity is resolved or explicitly marked as an approved boundary. Do not turn missing copy, data schema, business behavior, or visual state into an unrecorded guess.
 - A foundation baseline exists. If the tree, build chain, shell, shared token, or required primitive is missing, return to `figma-frontend-foundation` instead of rebuilding it ad hoc in a page slice.
 
-In context mode, require the approved task context to permit `implementation`. Its layout, viewport, rules, and assumption records are the input contract; a blocked or stale reference ends the phase rather than triggering direct intake.
+In context mode, require the approved task context to permit `implementation`. Its layout, viewport, rules, and assumption records are the input contract; a blocked or stale reference ends the phase rather than triggering direct intake. When an `amendment.approved.json` is supplied, validate its checksum, base hash, task ID and `implementation` permission; use only its in-memory delta for evidence nodes/states and permitted file additions, never edit the base context.
 
 Treat `implementationContract` as a hard source-ownership boundary. Do not create a page, route, component file, or alternate app structure that is absent from its file plan. Do not replace, rename, or repurpose an existing entrypoint such as `index.html` unless `deliveryMode` is `replace_single_static_entry` and `entrypointStrategy` is explicitly `replace`.
 
@@ -30,7 +30,7 @@ For a static-UI scope, do not add APIs, persistence, domain calculation, chart l
 
 ## Evidence-First Slice
 
-Create or update the compact ledger in [design-evidence-ledger.md](references/design-evidence-ledger.md) before substantial page code. One row is enough for a small component; a screen can have rows for its shell, repeated component, and state. When Figma MCP is needed, first use the task-local snapshot managed by `figma-design-intake-cache`; do not create a duplicate unbudgeted read.
+Before substantial page code, run `figma-context evidence init --context <task-context>` and create or update its compact ledger at `contexts/tasks/<project>/<task>/reports/evidence/design-evidence-ledger.json`. One row is enough for a small component; a screen can have rows for its shell, repeated component, and state. Never write the ledger, screenshots, or QC bundle into the customer source unless the customer explicitly requires delivery documentation there. When Figma MCP is needed, first use the task-local snapshot managed by `figma-design-intake-cache`; do not create a duplicate unbudgeted read.
 
 Use evidence in this precedence order:
 
@@ -79,7 +79,7 @@ A slice is ready for review only when:
 - Code follows the applicable naming, semantic, styling, framework, and dependency rules.
 - The evidence ledger maps the screen/state to its source and any remaining deviation/assumption.
 - The configured build, lint, typecheck, or narrow test applicable to the changed surface has passed, or a failure is reported with cause and scope.
-- Screenshot evidence exists for each requested design viewport when the app can run; responsive work also includes breakpoint-boundary and long-content checks.
+- Screenshot evidence exists for each requested design viewport when the app can run. Use `figma-context evidence capture --context <task-context> --url <local-url> --screen <screen> --state <state> --viewport <width>x<height> [--amendment <approved-amendment>]`; it stores the PNG under the task report directory and updates the ledger/bundle with `captured_pending_comparison`, never a unilateral pass. Responsive work also includes breakpoint-boundary and long-content checks.
 - The handoff says exactly what changed, what was checked, what is intentionally deferred, and what remains blocked.
 
 Do not label a result `pixel-perfect` without matching viewport references, confirmed fonts/assets, rendered screenshots, and reviewed comparison evidence. Send code to `figma-frontend-review` next; final visual/UI/browser assertions belong to `figma-frontend-qc`.

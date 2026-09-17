@@ -11,14 +11,14 @@ Execute the approved test scope and produce immutable evidence. QC can show that
 
 Require a review handoff, applicable test plan, quality profile, quality evidence bundle, target context-pack rows, runnable build, and the target viewport/state matrix. If a required item is absent, mark affected cases `blocked` or `not_run`; do not replace it with a guess.
 
-In context mode, first require the approved task context to permit `qc`; use its referenced evidence and write test artifacts only under the task context reports area. Do not alter the approved context baseline.
+In context mode, first require the approved task context to permit `qc` and require current review-phase evidence links. If supplied, validate `amendment.approved.json` and pass it consistently as `--amendment` to `qc-plan`, `run-qc` and `link-evidence`. Create/read `figma-context qc-plan --context <approved> --url <route> [--amendment <approved-amendment>]` before capture. QC-phase evidence links are intentionally created after `run-qc`, then validated with `link-evidence --phase qc` and `status --phase qc --allow-source-drift`. Use its project artifacts plus task-local `reportRefs` and `reports/qc/qc-plan.json`. Execute only the approved matrix; a new viewport/state/interaction requires a context revision or approved amendment, not a QC-side assumption. Write test artifacts only under the task context reports area. Do not alter the approved context baseline.
 
 Read [quality-profile.md](references/quality-profile.md) before execution and [test-report-contract.md](references/test-report-contract.md) before writing results.
 
 ## Evidence-First Execution
 
-1. Capture application screenshots at every declared visual viewport/state using the recorded browser, DPR, zoom, fonts/assets, route and data seed. For menus, popovers, modals and tooltips, capture the open state separately and record shadow/elevation, blur, overlay, clipping and placement checks.
-2. Compare against the bundle reference using side-by-side/overlay first. Use pixel diff only when environments are comparable and tolerance/masks were approved.
+1. Run `figma-context run-qc --context <approved> [--amendment <approved-amendment>]` after the user-operated local server is ready. It uses one sequential browser process, executes declared click/press/wait actions, records supported document/element assertions, captures every declared viewport/state and writes PNGs/SHA-256 under `contexts/tasks/<project>/<task>/reports/evidence/`, outside customer source. Then run `link-evidence --phase qc [--amendment <approved-amendment>]` and `status --phase qc --allow-source-drift`; do not treat an unlinked capture as QC-ready.
+2. Read `reports/qc/visual-diff-summary.json`. Pixel measurements require a comparable reference PNG and same dimensions; masks are not inferred. A mismatch count is evidence for analysis, never an automated Pass.
 3. Run the functional, keyboard/accessibility, browser and edge/monkey matrix applicable to the implemented feature. Record actual results, not intended behavior.
 4. For responsive scope, test each supplied Desktop/Tablet/SP frame plus the declared breakpoint-boundary and long-content cases. For desktop-only scope, mobile/tablet is `not_in_scope`.
 5. If a material Figma fact is absent or stale, create an `evidence_refresh_request`; do not call MCP. If refresh is denied or quota is exhausted, leave the case `blocked`/`inconclusive`.

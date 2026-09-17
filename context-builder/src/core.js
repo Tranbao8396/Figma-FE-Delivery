@@ -11,8 +11,9 @@ const { normalizeFile } = require("../../normalizers/design-normalizer/src/core"
 const { collectSourceInventory } = require("../../collectors/source-adapter/src/core");
 const { collectRulesInput } = require("../../collectors/rules-adapter/src/core");
 const { FOUNDATION_MANIFEST_VERSION, createFoundationManifest, normalizeFoundationManifest } = require("./foundation-manifest");
+const { reportPaths } = require("./evidence");
 
-const VERSION = "1.9.0";
+const VERSION = "1.14.0";
 const CONTEXT_ROOT = process.env.FIGMA_CONTEXT_ROOT || "D:\\agents\\figma-frontend-agent\\contexts";
 const PHASES = ["analysis", "foundation", "implementation", "review", "qc"];
 const DELIVERY_MODES = new Set(["add_page_to_static_site", "replace_single_static_entry", "modify_existing_page", "add_route_to_existing_app", "component_slice"]);
@@ -100,6 +101,24 @@ function projectRelativePath(value) {
   const normalized = value.trim().replace(/\\/g, "/");
   if (normalized.startsWith("/") || /^[a-z]:\//i.test(normalized) || normalized.split("/").includes("..")) return null;
   return normalized;
+}
+
+function normalizeQualityPlan(value, viewportContract) {
+  if (value === undefined || value === null) return null;
+  assert(value && typeof value === "object" && !Array.isArray(value), "qualityPlan must be an object");
+  const cases = Array.isArray(value.cases) ? value.cases : [];
+  const normalizedCases = cases.map((item, index) => {
+    assert(item && typeof item === "object", `qualityPlan.cases[${index}] must be an object`);
+    assert(typeof item.id === "string" && item.id.trim(), `qualityPlan.cases[${index}].id is required`);
+    const result = { id: item.id.trim(), screen: typeof item.screen === "string" ? item.screen.trim() : null, state: typeof item.state === "string" ? item.state.trim() : null, referenceImagePath: typeof item.referenceImagePath === "string" ? item.referenceImagePath : null, testCases: Array.isArray(item.testCases) ? [...new Set(item.testCases.filter((testCase) => typeof testCase === "string" && testCase.trim()))] : [], actions: Array.isArray(item.actions) ? item.actions : [], assertions: Array.isArray(item.assertions) ? item.assertions : [], visualDiff: item.visualDiff && typeof item.visualDiff === "object" ? item.visualDiff : null };
+    if (item.viewport !== undefined) {
+      assert(item.viewport && Number.isFinite(Number(item.viewport.width)) && Number(item.viewport.width) > 0 && Number.isFinite(Number(item.viewport.height)) && Number(item.viewport.height) > 0, `qualityPlan.cases[${index}].viewport is invalid`);
+      if (viewportContract && viewportContract.deviceScope === "pc_only" && viewportContract.minWidth) assert(Number(item.viewport.width) >= Number(viewportContract.minWidth), `qualityPlan.cases[${index}] viewport is narrower than pc_only minWidth`);
+      result.viewport = { width: Number(item.viewport.width), height: Number(item.viewport.height) };
+    }
+    return result;
+  });
+  return { cases: normalizedCases, visualDiff: value.visualDiff && typeof value.visualDiff === "object" ? value.visualDiff : null };
 }
 
 function implementationReadiness(intake) {
@@ -318,7 +337,6 @@ function buildContext(intake) {
     { id: "normalized-design", kind: "normalized_design_artifact", path: normalizedDesignRelative, phases: ["foundation", "implementation", "review", "qc"] },
     { id: "design-index", kind: "design_index", path: designIndexRelative, phases: ["implementation", "qc"] },
     { id: "layout", kind: "figma_layout_context", path: layoutRelative, phases: ["foundation", "implementation", "review", "qc"] },
-    { id: "evidence-links", kind: "evidence_links", path: "evidence/evidence-links.json", phases: ["review", "qc"] }
   ];
   const targetNodeId = intake.design && intake.design.targetFrame && intake.design.targetFrame.nodeId || null;
   const declaredNormalizedArtifact = intake.design && intake.design.normalizedArtifactPath;
@@ -404,6 +422,7 @@ function buildContext(intake) {
   const projectIndex = cacheDocument(indexOutput, (previous) => buildProjectContextIndex(indexInput, { artifactDocuments: documents, previousContext: previous }));
 
   const taskDraftOutput = path.join(taskRoot, "task-context.draft.json");
+  const taskReports = reportPaths(taskDraftOutput);
   const visual = visualReadiness(intake, normalizedDesign);
   const implementation = implementationReadiness(intake);
   const scaffold = scaffoldReadiness(intake);
@@ -416,6 +435,14 @@ function buildContext(intake) {
     profileRef: { path: profileOutput, id: profile.id, version: profile.version, hash: documentHash(profile) },
     projectRef: { path: projectContextOutput, hash: documentHash(project), sourceFingerprint: project.sourceRef.fingerprint },
     contextIndexRef: { path: indexOutput, kind: "project_context_index" },
+    reportRefs: {
+      root: taskReports.reportsRoot,
+      foundationManifest: intake.lineage && intake.lineage.foundationManifestPath || (intake.task.requestedPhase === "foundation" ? path.join(taskReports.reportsRoot, "foundation-manifest.json") : null),
+      designEvidenceLedger: taskReports.ledgerPath,
+      qualityEvidenceBundle: taskReports.bundlePath,
+      evidenceLinks: taskReports.linksPath,
+      screenshots: taskReports.screenshotsRoot
+    },
     design: {
       figmaUrl: intake.design && intake.design.figmaUrl || null,
       nodes: intake.design && intake.design.nodes || [],
@@ -438,6 +465,7 @@ function buildContext(intake) {
     assetPolicy: intake.assetPolicy || { icons: "figma_asset_or_approved_library_only", forbidCssRecreationWithoutEvidence: true },
     visualReadiness: visual.readiness,
     acceptanceCriteria: intake.acceptanceCriteria || [],
+    qualityPlan: normalizeQualityPlan(intake.qualityPlan, intake.viewportContract),
     assumptions: intake.assumptions || [],
     phasePermissions: Object.fromEntries(PHASES.map((phase) => [phase, projectIndex.context.phases[phase] || { ready: false, blockedBy: ["phase_not_configured"] }])),
     evidenceRefreshPolicy: "human_or_cache_owner_authorized_only",
@@ -466,7 +494,7 @@ function validationErrors(context, contextPath, options = {}) {
     const project = readJson(context.projectRef.path);
     if (project.project && project.project.sourcePath && fs.existsSync(project.project.sourcePath)) {
       const currentSource = buildSourceContext(collectSourceInventory(project.project.sourcePath), { repository: project.project.sourcePath });
-      if (currentSource.context.provenance.inputFingerprint !== context.projectRef.sourceFingerprint) errors.push("source_context_stale");
+      if (currentSource.context.provenance.inputFingerprint !== context.projectRef.sourceFingerprint && !options.allowSourceDrift) errors.push("source_context_stale");
     } else errors.push("source_repository_missing");
   }
   if (context.design && (context.design.normalizedArtifactPath || context.design.rawArtifactPath)) {
@@ -500,6 +528,40 @@ function validationErrors(context, contextPath, options = {}) {
       if (requested === "implementation") {
         if (sourceState !== "existing_project") errors.push(`implementation_source_state_invalid:${sourceState}`);
         if (!context.implementationReadiness || !context.implementationReadiness.ready) errors.push(...(context.implementationReadiness && context.implementationReadiness.errors || ["implementation_contract_missing"]));
+      }
+    }
+    if (["review", "qc"].includes(requested) && !options.skipTaskReportGate) {
+      const refs = context.reportRefs;
+      if (!refs || !refs.designEvidenceLedger || !refs.qualityEvidenceBundle || !refs.evidenceLinks || !refs.screenshots) {
+        errors.push("task_report_refs_missing");
+      } else {
+        if (!isWithin(CONTEXT_ROOT, refs.screenshots)) errors.push("task_report_escapes_context_root:screenshots");
+        const requiredReports = [
+          ["designEvidenceLedger", "design_evidence_ledger"],
+          ["qualityEvidenceBundle", "quality_evidence_bundle"],
+          ["evidenceLinks", "evidence_links"]
+        ];
+        for (const [name, kind] of requiredReports) {
+          const reportPath = refs[name];
+          if (!isWithin(CONTEXT_ROOT, reportPath)) { errors.push(`task_report_escapes_context_root:${name}`); continue; }
+          if (!fs.existsSync(reportPath)) { errors.push(`task_report_missing:${name}`); continue; }
+          const report = readJson(reportPath);
+          const reportStatus = report.status || report.provenance && report.provenance.status;
+          if (report.kind !== kind || reportStatus !== "current") errors.push(`task_report_invalid:${name}`);
+        }
+        if (fs.existsSync(refs.evidenceLinks)) {
+          const links = readJson(refs.evidenceLinks);
+          if (links.phase !== requested) errors.push("task_evidence_links_phase_mismatch");
+          if (!links.coverage || links.coverage.targetCount < 1 || links.coverage.fullyLinkedCount !== links.coverage.targetCount) errors.push("task_evidence_links_incomplete");
+        }
+        if (requested === "qc" && fs.existsSync(refs.qualityEvidenceBundle)) {
+          const bundle = readJson(refs.qualityEvidenceBundle);
+          const captures = bundle.visualComparisonMatrix || [];
+          if (!captures.length) errors.push("task_visual_evidence_missing");
+          for (const capture of captures) {
+            if (!capture.renderTarget || !fs.existsSync(capture.renderTarget)) errors.push("task_visual_evidence_file_missing");
+          }
+        }
       }
     }
   }
@@ -644,7 +706,8 @@ function transitionToImplementation(foundationContextPath, implementationIntake,
     viewportContract: foundation.viewportContract || null,
     assetPolicy: foundation.assetPolicy || null,
     acceptanceCriteria: foundation.acceptanceCriteria || [],
-    assumptions: foundation.assumptions || []
+    assumptions: foundation.assumptions || [],
+    qualityPlan: foundation.qualityPlan || null
   };
   const intake = {
     ...inherited,

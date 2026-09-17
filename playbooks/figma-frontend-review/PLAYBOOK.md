@@ -11,7 +11,7 @@ Perform an independent code-review pass after an implementation slice. The outpu
 
 Read the task and foundation manifests, only the changed context-pack rows, customer rules, relevant diff, changed dependency graph, design-evidence ledger, and quality evidence bundle. Review the code as it exists; do not trust implementation self-reporting.
 
-In context mode, first require the approved task context to permit `review`; read only its referenced artifacts and append findings under the task context reports area. Do not alter the approved context baseline.
+In context mode, first require the approved task context to permit `review`; if supplied, validate `amendment.approved.json` and pass it as `--amendment`. Run/read `figma-context review-input --context <approved> --changed-files <known-changes> [--amendment <approved-amendment>]` before opening code. Read project artifacts from the index, then task-local `reportRefs.designEvidenceLedger`, `reportRefs.qualityEvidenceBundle`, review-phase `reportRefs.evidenceLinks`, and `reports/review/change-manifest.json`. Open only files the manifest marks changed, missing, forbidden or outside contract. Append findings under the task context reports area. Do not alter the approved context baseline.
 
 Do not call Figma MCP. If evidence is missing, stale, or contradictory, create an `evidence_refresh_request` for `figma-design-intake-cache` with the target node/state and observed mismatch. The cache owner decides whether to consume a budgeted call.
 

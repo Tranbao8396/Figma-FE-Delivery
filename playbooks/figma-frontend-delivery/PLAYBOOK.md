@@ -18,7 +18,7 @@ Before this playbook, use `figma-context-task-intake` to declare `context` or `d
 - For source-tree setup, scaffolding, design tokens, shell/layout, or shared components before page/domain work, use `figma-frontend-foundation` after analysis.
 - For page or component implementation, use `figma-frontend-implementation` after an approved task manifest and foundation manifest. Do not turn material design ambiguity into code assumptions silently.
 - For independent code review, use `figma-frontend-review` after implementation. For evidence-based visual/function/browser QC, use `figma-frontend-qc` after review.
-- Before review and QC, invoke the `evidence-linker-hook` CLI to link Figma references, source files, test IDs and visual-evidence IDs. It reports missing coverage only; it cannot certify a pass.
+- Before Review, invoke the `evidence-linker-hook` CLI to link Figma references, source files and test IDs. For QC, capture the approved matrix first, then invoke it with QC phase so visual-evidence IDs are included. It reports missing coverage only; it cannot certify a pass.
 - Maintain `project-context-index.json` with `project-context-index-hook`. It is the only project-wide context loaded first; every phase reads its `ready`/`blockedBy` record before loading child artifacts.
 
 ## Intake Order

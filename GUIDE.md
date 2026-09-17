@@ -22,13 +22,206 @@ Flow này nhằm:
 - Tách context khỏi source code của khách hàng.
 - Kiểm soát source ownership, responsive contract, icon/asset, visual state và quality evidence.
 
+## Vị trí Report và Screenshot
+
+Customer source chỉ chứa source code, cấu hình và test do khách hàng yêu cầu. Context reports luôn nằm ngoài source, theo task:
+
+```text
+contexts/tasks/<project-key>/<task-id>/
+  task-context.draft.json
+  task-context.approved.json
+  amendments/<amendment-id>/
+    amendment.draft.json
+    amendment.approved.json
+    amendment.approved.json.sha256
+  reports/
+    foundation-manifest.json
+    evidence/
+      design-evidence-ledger.json
+      quality-evidence-bundle.json
+      evidence-links.json
+      screenshots/
+        <screen>--<state>--<viewport>--<timestamp>.png
+    review/
+      change-manifest.json
+      review-report.json
+    qc/
+      qc-plan.json
+      qc-run.json
+      visual-diff-summary.json
+```
+
+Khởi tạo artifact evidence trước Implementation hoặc QC:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js init-evidence `
+  --context <task-context.approved.json>
+```
+
+Khi local application đang chạy, chụp render thật ở viewport contract:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js capture-evidence `
+  --context <task-context.approved.json> `
+  --url http://localhost:3000/dashboard.html `
+  --screen dashboard-main `
+  --state default `
+  --viewport 1400x887 `
+  --test-cases TC-UI-001,TC-UI-002
+```
+
+`init-evidence` yêu cầu approved context còn current. `capture-evidence` và `link-evidence` dùng cùng integrity/design/phase checks, đồng thời chấp nhận expected source drift sau Implementation theo quy tắc ở phần bên dưới. `capture-evidence` cần Playwright và Chromium (`npm install` trong `context-builder`, sau đó `npx playwright install chromium`). Nó ghi PNG, SHA-256, URL/route, viewport, DPR, browser, zoom, ready selector, font/assets state, data seed và `--test-cases`; bundle dùng `captured_pending_comparison` khi không thể đo reference, còn visual diff chỉ ghi evidence. Khi capture cho một Amendment, truyền cùng `--amendment <amendment.approved.json>` để ledger/bundle giữ trace. Sau capture, chạy `link-evidence --context <task-context> --phase review` hoặc `--phase qc`; link chỉ current khi mỗi target có Figma node, source mapping và test case, còn QC cần screenshot render tồn tại. Để đưa ledger cũ ra khỏi source trong bước preparation có kiểm soát, dùng `migrate-evidence --context <task-context> --from <source-ledger> --remove-source --preparation`.
+
+## Review và QC có kiểm soát
+
+Review dùng `review-input` để tạo `reports/review/change-manifest.json`. Manifest chỉ chứa file từ `implementationContract.filePlan`, SHA-256, size, state thay đổi và static findings như file bắt buộc thiếu, file cấm xuất hiện, hoặc changed file nằm ngoài contract. Agent đọc manifest trước; chỉ mở file bị gắn finding hoặc file thực sự thay đổi. Không dùng screenshot trong chat làm evidence.
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js review-input `
+  --context <task-context.approved.json> `
+  --changed-files dashboard.html,src/pages/_dashboard.scss,src/pages/dashboard.js
+```
+
+`qualityPlan` là phần tùy chọn của intake/context để khai báo test case ngoài baseline Figma. QC plan tự thêm mọi `visualStates.required`; nếu state đó chưa có action mở state tương ứng, case bị `blocked: visual_state_action_missing`, không chụp nhầm trạng thái mặc định. Một context PC-only `minWidth: 1400` chỉ được khai báo viewport QC có width từ 1400 trở lên. Muốn kiểm stretch `1800x1100`, dropdown mở hoặc long-content, phải thêm case vào revision của context rồi review/approve lại; không được tự nới matrix trong lúc QC.
+
+```json
+{
+  "qualityPlan": {
+    "visualDiff": { "channelThreshold": 16 },
+    "cases": [
+      {
+        "id": "user-menu-open-wide",
+        "screen": "dashboard-main",
+        "state": "user-menu-open",
+        "viewport": { "width": 1800, "height": 1100 },
+        "testCases": ["TC-MENU-001"],
+        "actions": [{ "type": "click", "selector": ".dashboard-user__trigger" }],
+        "assertions": [{ "type": "element", "selector": "#dashboard-user-menu", "visible": true }]
+      }
+    ]
+  }
+}
+```
+
+Tạo và chạy matrix QC trên server do người vận hành chủ động khởi động:
+
+```powershell
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js allocate-port
+
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js qc-plan `
+  --context <task-context.approved.json> `
+  --url http://127.0.0.1:3001/dashboard.html `
+  --screen dashboard-main `
+  --test-cases TC-UI-001
+
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js run-qc `
+  --context <task-context.approved.json>
+
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js link-evidence `
+  --context <task-context.approved.json> `
+  --phase qc
+```
+
+QC bắt đầu từ review evidence links. `run-qc` được phép tạo screenshot trước khi QC links tồn tại; ngay sau đó phải chạy `link-evidence --phase qc` và `status --phase qc --allow-source-drift`. Runner dùng một browser process tuần tự cho mọi case, thực hiện `click`, `press` hoặc `wait` được khai báo, kiểm document/element assertion, ghi PNG và đo pixel difference khi reference PNG có kích thước tương thích. `visual-diff-summary.json` chỉ ghi số pixel lệch và điều kiện đo. Không có ngưỡng nào tự đổi kết quả thành `PASS`, `pixel-perfect` hoặc `verified_pass`.
+
+## Context Amendment cho yêu cầu nhanh
+
+Amendment là overlay task-local đã duyệt, dành cho delta nhỏ sau khi base context đã approved. Nó phù hợp với ba loại: `evidence_backed_correction` khi code sai với evidence đang có, `evidence_backed_scope_extension` khi có node/ảnh/state/viewport mới, và `user_directed_deviation` khi bạn chủ động thay đổi nhưng không khẳng định nó khớp Figma.
+
+Không dùng Amendment cho framework, coding/lint/format rules, target frame chính, delivery mode, route architecture, entrypoint strategy hoặc source ownership. Các thay đổi đó phải tạo task context revision.
+
+Input tối thiểu cho một dropdown có shadow/state mới:
+
+```json
+{
+  "id": "AMD-001-user-menu",
+  "baseContext": {
+    "path": "D:\\agents\\figma-frontend-agent\\contexts\\tasks\\pos\\POS-001\\task-context.approved.json"
+  },
+  "changeType": "evidence_backed_scope_extension",
+  "allowedPhases": ["implementation", "review", "qc"],
+  "reason": "Bổ sung user menu mở theo node và ảnh reference đã cung cấp.",
+  "designEvidence": {
+    "nodes": ["119:10"],
+    "referenceImages": [
+      {
+        "path": "D:\\agents\\figma-frontend-agent\\contexts\\projects\\pos\\evidences\\user-menu-open.png",
+        "role": "visual_comparison"
+      }
+    ]
+  },
+  "contractDelta": {
+    "visualStates": [
+      {
+        "id": "user-menu-open",
+        "state": "open",
+        "trigger": "click-user-summary",
+        "targetNodeId": "119:10",
+        "requiredEffects": ["DROP_SHADOW"]
+      }
+    ],
+    "filePlan": {
+      "create": [],
+      "modify": ["src/pages/dashboard.js", "src/pages/_dashboard.scss"]
+    }
+  },
+  "qualityPlanDelta": {
+    "cases": [
+      {
+        "id": "user-menu-open",
+        "screen": "dashboard-main",
+        "state": "open",
+        "viewport": { "width": 1400, "height": 887 },
+        "testCases": ["TC-MENU-001"],
+        "actions": [{ "type": "click", "selector": ".dashboard-user__trigger" }],
+        "assertions": [{ "type": "element", "selector": "#dashboard-user-menu", "visible": true }]
+      }
+    ]
+  }
+}
+```
+
+```powershell
+# Tạo template task-local từ base đã approved/current
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js amend-init `
+  --base <task-context.approved.json> `
+  --id AMD-001-user-menu
+
+# Sau khi điền input, Builder chuẩn hóa node, ảnh, file plan và QC delta
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js amend-build `
+  --input D:\work\AMD-001-user-menu.json
+
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js amend-validate `
+  --amendment <amendment.draft.json> `
+  --phase implementation
+
+node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js amend-approve `
+  --amendment <amendment.draft.json>
+```
+
+Amendment evidence-backed bắt buộc có ít nhất một Figma node ID và ảnh reference ở path ổn định. Mỗi visual state mới cần `id`, `state`, `trigger`, `targetNodeId`; node đó phải có trong `designEvidence.nodes`. `filePlan` chỉ cho phép thêm file `create`/`modify`; không thể đổi primary page hoặc gỡ file cấm của base context.
+
+Khi giao task cho Agent, gửi cả hai path. Agent chạy `amend-status --amendment <approved> --phase <phase>`, đối chiếu base hash/task ID, rồi merge trong bộ nhớ. Không gửi draft amendment để implement. Khi cần capture ở Implementation, Review hoặc QC, truyền cùng `--amendment` vào `capture-evidence`; Review/QC tiếp tục dùng nó trong `review-input`, `qc-plan`, `run-qc`, `link-evidence`. Ledger, evidence links, QC plan và QC run sẽ giữ amendment reference để trace được nguồn thay đổi.
+
+### Source fingerprint sau khi đã code
+
+`sourceFingerprint` của base context là snapshot trước phase Implementation. Vì vậy source khác fingerprint sau Foundation hoặc Implementation là **expected source drift**, không tự thân là bằng chứng context design bị lỗi. Tuy nhiên nó không được bỏ qua trên toàn bộ flow:
+
+- Trước Foundation/Implementation, `status` vẫn kiểm fingerprint strict.
+- Sau khi code đã đổi, chỉ các lệnh tạo/đối chiếu evidence (`capture-evidence`, `link-evidence`), `review-input`, `qc-plan` và `run-qc` mới cho phép expected drift có kiểm soát. Chúng vẫn kiểm checksum context, profile/project/index reference, Figma/design artifact, phase gate và report evidence.
+- Khi cần kiểm status ở Review hoặc QC sau implementation, dùng `status --allow-source-drift` **chỉ trong flow hậu-implementation**. Cờ này không chữa được `design_artifact_stale`, checksum sai, missing evidence hoặc phase bị block.
+
+Nhờ vậy Agent không được lấy một context cũ để implement tiếp một cách mù quáng, nhưng vẫn có thể review/QC đúng source vừa được triển khai.
+
 ## Thuật ngữ và trách nhiệm
 
 Chỉ dùng một CLI:
 
 ```powershell
-node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js <command>
+figma-context <group> <command>
 ```
+
+CLI chuẩn dùng command tree: `context`, `design`, `amend`, `foundation`, `evidence`, `review`, `qc`, `util`. Ví dụ mới: `figma-context amend create`, `figma-context evidence link`, `figma-context review input`, `figma-context qc run`. `ctx`, `amd`, `fdn`, `ev` là alias nhóm. Với approved task context, có thể dùng `--task <project-key>/<task-id>` thay `--context`; CLI từ chối dùng hai cờ cùng lúc và chặn path traversal. Tên lệnh phẳng cũ còn tương thích, luôn trả `meta.warnings`; chỉ dùng khi cần migration.
 
 CLI điều phối ba lớp nội bộ. Người vận hành dùng CLI chung, không cần chạy từng module riêng trong flow bình thường.
 
@@ -260,6 +453,15 @@ Agent chỉ đọc artifact được `project-context-index.json` cấp cho phas
 | `collect --figma-url <url> --out <collected.json> --allow-figma-rest` | Lấy Figma REST targeted. |
 | `normalize --input <collected.json> --out <normalized.json> --target-node-id <id>` | Review/debug target scope trước build. |
 | `build --intake <intake.json>` | Build từ paths đã có trong intake. |
+| `amend-init --base <approved> --id <id>` | Tạo draft Context Amendment task-local. |
+| `amend-build --input <json>` | Chuẩn hóa amendment input và reference base hash. |
+| `amend-validate`, `amend-approve`, `amend-status` | Validate, duyệt và kiểm amendment immutable. |
+| `capture-evidence --context <approved> ... [--amendment <approved>]` | Capture render và ghi trace Amendment khi có. |
+| `status --context <approved> --phase <review\|qc> --allow-source-drift` | Kiểm gate hậu-implementation mà vẫn giữ design/evidence/integrity checks. |
+| `review-input --context <approved> --changed-files <files> [--amendment <approved>]` | Sinh manifest review có hash và kiểm file-plan. |
+| `qc-plan --context <approved> --url <route> [--amendment <approved>]` | Sinh matrix QC từ baseline/context revision. |
+| `run-qc --context <approved> [--amendment <approved>]` | Chạy matrix QC, action/assertion/capture/diff evidence. |
+| `allocate-port` | Tìm port local rảnh cho test server do người vận hành khởi động. |
 
 Flow bình thường dùng `prepare`; các command này dành cho debug, review evidence hoặc tái sử dụng artifact.
 
