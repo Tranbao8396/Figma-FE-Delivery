@@ -124,6 +124,25 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js link-ev
 
 QC bắt đầu từ review evidence links. `run-qc` được phép tạo screenshot trước khi QC links tồn tại; ngay sau đó phải chạy `link-evidence --phase qc` và `status --phase qc --allow-source-drift`. Runner dùng một browser process tuần tự cho mọi case, thực hiện `click`, `press` hoặc `wait` được khai báo, kiểm document/element assertion, ghi PNG và đo pixel difference khi reference PNG có kích thước tương thích. `visual-diff-summary.json` chỉ ghi số pixel lệch và điều kiện đo. Không có ngưỡng nào tự đổi kết quả thành `PASS`, `pixel-perfect` hoặc `verified_pass`.
 
+## Target frame và visual state sibling
+
+Một task chỉ có một `targetFrame` chính: đó là baseline layout, viewport và source scope. Không khai báo mảng `targetFrame`. Khi Figma đặt trạng thái menu/modal mở thành frame sibling của màn hình chính, khai báo state bằng `stateFrameNodeId`; khi shadow/effect nằm ở node con, khai báo node đó trong `effectNodeIds`. Normalizer giữ các node state/effect này song song với subtree của target frame.
+
+```json
+{
+  "id": "user-menu-open",
+  "state": "open",
+  "trigger": "click-user-summary",
+  "stateFrameNodeId": "119:2",
+  "effectNodeIds": ["119:10"],
+  "required": true,
+  "requiredEffects": ["DROP_SHADOW"],
+  "referenceImagePath": "D:\\evidence\\Dashboard - Main - menu - open.png"
+}
+```
+
+`targetNodeId` là field cũ vẫn tương thích; intake mới ưu tiên `stateFrameNodeId`. Mỗi `id` phải duy nhất. State đóng không có shadow phải để `requiredEffects: []` hoặc `required: false`, không sao chép yêu cầu effect từ state mở.
+
 ## Context Amendment cho yêu cầu nhanh
 
 Amendment là overlay task-local đã duyệt, dành cho delta nhỏ sau khi base context đã approved. Nó phù hợp với ba loại: `evidence_backed_correction` khi code sai với evidence đang có, `evidence_backed_scope_extension` khi có node/ảnh/state/viewport mới, và `user_directed_deviation` khi bạn chủ động thay đổi nhưng không khẳng định nó khớp Figma.
@@ -199,7 +218,7 @@ node D:\agents\figma-frontend-agent\context-builder\bin\figma-context.js amend-a
   --amendment <amendment.draft.json>
 ```
 
-Amendment evidence-backed bắt buộc có ít nhất một Figma node ID và ảnh reference ở path ổn định. Mỗi visual state mới cần `id`, `state`, `trigger`, `targetNodeId`; node đó phải có trong `designEvidence.nodes`. `filePlan` chỉ cho phép thêm file `create`/`modify`; không thể đổi primary page hoặc gỡ file cấm của base context.
+Amendment evidence-backed bắt buộc có ít nhất một Figma node ID và ảnh reference ở path ổn định. Mỗi visual state mới cần `id`, `state`, `trigger`, `stateFrameNodeId`; node đó và mọi `effectNodeIds` phải có trong `designEvidence.nodes`. `targetNodeId` chỉ là alias tương thích. `filePlan` chỉ cho phép thêm file `create`/`modify`; không thể đổi primary page hoặc gỡ file cấm của base context.
 
 Khi giao task cho Agent, gửi cả hai path. Agent chạy `amend-status --amendment <approved> --phase <phase>`, đối chiếu base hash/task ID, rồi merge trong bộ nhớ. Không gửi draft amendment để implement. Khi cần capture ở Implementation, Review hoặc QC, truyền cùng `--amendment` vào `capture-evidence`; Review/QC tiếp tục dùng nó trong `review-input`, `qc-plan`, `run-qc`, `link-evidence`. Ledger, evidence links, QC plan và QC run sẽ giữ amendment reference để trace được nguồn thay đổi.
 
@@ -222,6 +241,8 @@ figma-context <group> <command>
 ```
 
 CLI chuẩn dùng command tree: `context`, `design`, `amend`, `foundation`, `evidence`, `review`, `qc`, `util`. Ví dụ mới: `figma-context amend create`, `figma-context evidence link`, `figma-context review input`, `figma-context qc run`. `ctx`, `amd`, `fdn`, `ev` là alias nhóm. Với approved task context, có thể dùng `--task <project-key>/<task-id>` thay `--context`; CLI từ chối dùng hai cờ cùng lúc và chặn path traversal. Tên lệnh phẳng cũ còn tương thích, luôn trả `meta.warnings`; chỉ dùng khi cần migration.
+
+Khi truyền Figma URL có query string, bắt buộc đặt toàn bộ URL trong dấu nháy. `&` là toán tử của PowerShell/CMD; URL không được quote sẽ bị tách trước khi CLI chạy, dẫn tới thiếu `--allow-figma-rest` và lỗi kiểu `'p' is not recognized`.
 
 CLI điều phối ba lớp nội bộ. Người vận hành dùng CLI chung, không cần chạy từng module riêng trong flow bình thường.
 
@@ -326,7 +347,7 @@ Target frame, artifact và ảnh phải nói về cùng screen/state. Nếu khô
 }
 ```
 
-`targetNodeId` là node của dropdown/modal/tooltip, không phải node trigger. `requiredEffects` chấp nhận `DROP_SHADOW`, `INNER_SHADOW`, `LAYER_BLUR`, `BACKGROUND_BLUR`.
+`stateFrameNodeId` là frame của dropdown/modal/tooltip, không phải node trigger. Khi effect nằm trong node con, khai báo node đó ở `effectNodeIds`. `requiredEffects` chấp nhận `DROP_SHADOW`, `INNER_SHADOW`, `LAYER_BLUR`, `BACKGROUND_BLUR`.
 
 Collector lấy offset, radius, spread và color từ Figma. Layout compiler chuẩn hóa chúng thành `boxShadow`, `filter` hoặc `backdropFilter`. Không nhập CSS shadow ước lượng vào intake.
 

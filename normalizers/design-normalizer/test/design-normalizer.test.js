@@ -42,3 +42,12 @@ test("normalizes one nested target frame and removes hidden, design-only, and ve
   assert.equal(artifact.pages[0].frames[0].children[0].children[0].effects[0].type, "DROP_SHADOW");
   assert.deepEqual(artifact.assets[0], { nodeId: "57:103", name: "Export", kind: "icon", status: "requires_export_or_library_mapping", source: "figma_node", width: 16, height: 16 });
 });
+
+test("keeps a declared sibling visual-state frame alongside the primary target", () => {
+  const collected = { pages: [{ id: "page", frames: [{ nodeId: "root", children: [{ id: "root", type: "FRAME", name: "Root", children: [{ id: "base", type: "FRAME", name: "Base" }, { id: "menu-open", type: "FRAME", name: "Menu open", children: [{ id: "menu-surface", type: "RECTANGLE", name: "Surface", effects: [{ type: "DROP_SHADOW", visible: true }] }] }] }] }] }] };
+  const { artifact } = normalizeDesignArtifact(collected, { targetNodeId: "base", stateNodeIds: ["menu-open", "menu-surface"] });
+  const ids = JSON.stringify(artifact);
+  assert(ids.includes("menu-open"));
+  assert(ids.includes("menu-surface"));
+  assert.equal(artifact.provenance.stateNodeIds.length, 2);
+});

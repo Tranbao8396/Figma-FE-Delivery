@@ -229,26 +229,30 @@ function visualStateReadiness(intake, normalizedDesign) {
   const ids = new Set();
   const records = states.map((state, index) => {
     const id = typeof state.id === "string" && state.id.trim() ? state.id.trim() : null;
-    const nodeId = typeof state.targetNodeId === "string" && state.targetNodeId.trim() ? state.targetNodeId.trim() : null;
+    const stateFrameNodeId = typeof state.stateFrameNodeId === "string" && state.stateFrameNodeId.trim() ? state.stateFrameNodeId.trim() : (typeof state.targetNodeId === "string" && state.targetNodeId.trim() ? state.targetNodeId.trim() : null);
+    const effectNodeIds = [...new Set((Array.isArray(state.effectNodeIds) ? state.effectNodeIds : []).filter((nodeId) => typeof nodeId === "string" && nodeId.trim()))];
     const requiredEffects = Array.isArray(state.requiredEffects) ? [...new Set(state.requiredEffects.filter((effect) => typeof effect === "string" && effect.trim()))] : [];
     const referenceImagePath = typeof state.referenceImagePath === "string" && state.referenceImagePath.trim() ? state.referenceImagePath : null;
-    const node = findNormalizedDesignNode(normalizedDesign, nodeId);
-    const detectedEffects = [...new Set((node && node.effects || []).filter((effect) => effect && effect.visible !== false && typeof effect.type === "string").map((effect) => effect.type))];
+    const node = findNormalizedDesignNode(normalizedDesign, stateFrameNodeId);
+    const effectNodes = (effectNodeIds.length ? effectNodeIds : requiredEffects.length ? [stateFrameNodeId] : []).map((nodeId) => findNormalizedDesignNode(normalizedDesign, nodeId));
+    const detectedEffects = [...new Set(effectNodes.flatMap((effectNode) => (effectNode && effectNode.effects || []).filter((effect) => effect && effect.visible !== false && typeof effect.type === "string").map((effect) => effect.type)))];
     const referenceAvailable = Boolean(referenceImagePath && fs.existsSync(referenceImagePath));
     const nodeConfirmed = Boolean(node);
     const effectsConfirmed = requiredEffects.length === 0 || requiredEffects.every((effect) => detectedEffects.includes(effect));
     const errors = [];
     if (!id || ids.has(id)) errors.push("visual_state_id_invalid_or_duplicate");
-    if (!nodeId) errors.push("visual_state_target_node_missing");
+    if (!stateFrameNodeId) errors.push("visual_state_frame_node_missing");
     if (!nodeConfirmed && !referenceAvailable) errors.push("visual_state_evidence_missing");
-    if (requiredEffects.length && !nodeConfirmed) errors.push("visual_state_effect_node_missing");
+    if (requiredEffects.length && effectNodes.some((effectNode) => !effectNode)) errors.push("visual_state_effect_node_missing");
     if (!effectsConfirmed) errors.push("visual_state_required_effect_missing");
     if (id) ids.add(id);
     return {
       id: id || `invalid-state-${index + 1}`,
       state: typeof state.state === "string" && state.state.trim() ? state.state.trim() : "default",
       trigger: typeof state.trigger === "string" && state.trigger.trim() ? state.trigger.trim() : null,
-      targetNodeId: nodeId,
+      targetNodeId: stateFrameNodeId,
+      stateFrameNodeId,
+      effectNodeIds,
       required: state.required !== false,
       requiredEffects,
       referenceImage: referenceImagePath ? { path: referenceImagePath, available: referenceAvailable } : null,
@@ -339,6 +343,7 @@ function buildContext(intake) {
     { id: "layout", kind: "figma_layout_context", path: layoutRelative, phases: ["foundation", "implementation", "review", "qc"] },
   ];
   const targetNodeId = intake.design && intake.design.targetFrame && intake.design.targetFrame.nodeId || null;
+  const stateNodeIds = intake.design && Array.isArray(intake.design.visualStates) ? intake.design.visualStates.flatMap((state) => state ? [state.stateFrameNodeId || state.targetNodeId, ...(Array.isArray(state.effectNodeIds) ? state.effectNodeIds : [])].filter(Boolean) : []) : [];
   const declaredNormalizedArtifact = intake.design && intake.design.normalizedArtifactPath;
   const collectedArtifact = intake.design && (intake.design.collectedArtifactPath || intake.design.rawArtifactPath);
   const buildWarnings = [];
@@ -349,7 +354,7 @@ function buildContext(intake) {
       const declaredNormalized = readJson(declaredNormalizedArtifact);
       if (declaredNormalized.kind !== "normalized_design_artifact") throw new Error("Declared normalizedArtifactPath is not a normalized_design_artifact");
       const normalizedTarget = declaredNormalized.meta && declaredNormalized.meta.targetFrame || null;
-      const mustRetarget = Boolean(collectedArtifact && targetNodeId && normalizedTarget !== targetNodeId);
+      const mustRetarget = Boolean(collectedArtifact && targetNodeId && (normalizedTarget !== targetNodeId || stateNodeIds.some((nodeId) => !normalizedDesignContainsNode(declaredNormalized, nodeId))));
       if (!mustRetarget) {
         normalizedDesign = declaredNormalized;
         const normalizedOutput = path.join(projectRoot, normalizedDesignRelative);
@@ -366,7 +371,7 @@ function buildContext(intake) {
   if (!normalizedDesign && collectedArtifact && fs.existsSync(collectedArtifact)) {
     try {
       const normalizedOutput = path.join(projectRoot, normalizedDesignRelative);
-      const normalized = normalizeFile(collectedArtifact, normalizedOutput, { targetNodeId });
+      const normalized = normalizeFile(collectedArtifact, normalizedOutput, { targetNodeId, stateNodeIds });
       normalizedDesign = normalized.artifact;
       normalizedArtifactPath = normalized.outPath;
     } catch (error) {

@@ -32,7 +32,18 @@
     "normalizedArtifactPath": null,
     "rawArtifactPath": null,
     "referenceImages": [{ "path": "D:\\evidence\\pos-order-screen.png", "role": "visual_comparison", "measurementAuthority": "figma_frame" }],
-    "visualStates": []
+    "visualStates": [
+      {
+        "id": "example-menu-open",
+        "state": "open",
+        "trigger": "click-menu-trigger",
+        "stateFrameNodeId": "123:457",
+        "effectNodeIds": ["123:458"],
+        "required": false,
+        "requiredEffects": ["DROP_SHADOW"],
+        "referenceImagePath": "D:\\evidence\\pos-menu-open.png"
+      }
+    ]
   },
   "viewportContract": {
     "referenceViewport": { "width": 1400, "height": 887 },

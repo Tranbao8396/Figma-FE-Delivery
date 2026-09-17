@@ -91,9 +91,12 @@ function normalizeVisualStates(input, evidence) {
     assert(state && typeof state.id === "string" && state.id.trim(), `contractDelta.visualStates[${index}].id is required`);
     assert(typeof state.state === "string" && state.state.trim(), `contractDelta.visualStates[${index}].state is required`);
     assert(typeof state.trigger === "string" && state.trigger.trim(), `contractDelta.visualStates[${index}].trigger is required`);
-    assert(typeof state.targetNodeId === "string" && state.targetNodeId.trim(), `contractDelta.visualStates[${index}].targetNodeId is required`);
-    assert(evidence.nodes.includes(state.targetNodeId), `Visual state ${state.id} targetNodeId must be in designEvidence.nodes`);
-    return { id: state.id.trim(), state: state.state.trim(), trigger: state.trigger.trim(), targetNodeId: state.targetNodeId.trim(), required: Boolean(state.required), requiredEffects: [...new Set((state.requiredEffects || []).filter((effect) => typeof effect === "string" && effect.trim()))], referenceImage: evidence.referenceImages[0] || null };
+    const stateFrameNodeId = typeof state.stateFrameNodeId === "string" && state.stateFrameNodeId.trim() ? state.stateFrameNodeId.trim() : typeof state.targetNodeId === "string" && state.targetNodeId.trim() ? state.targetNodeId.trim() : null;
+    assert(stateFrameNodeId, `contractDelta.visualStates[${index}].stateFrameNodeId is required`);
+    const effectNodeIds = [...new Set((state.effectNodeIds || []).filter((nodeId) => typeof nodeId === "string" && nodeId.trim()))];
+    assert(evidence.nodes.includes(stateFrameNodeId), `Visual state ${state.id} stateFrameNodeId must be in designEvidence.nodes`);
+    assert(effectNodeIds.every((nodeId) => evidence.nodes.includes(nodeId)), `Visual state ${state.id} effectNodeIds must be in designEvidence.nodes`);
+    return { id: state.id.trim(), state: state.state.trim(), trigger: state.trigger.trim(), targetNodeId: stateFrameNodeId, stateFrameNodeId, effectNodeIds, required: Boolean(state.required), requiredEffects: [...new Set((state.requiredEffects || []).filter((effect) => typeof effect === "string" && effect.trim()))], referenceImage: evidence.referenceImages[0] || null };
   });
 }
 

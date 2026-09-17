@@ -11,7 +11,10 @@ function classifySourceState(files, packageJson) {
   const meaningful = normalized.filter((file) => !WORKSPACE_ONLY_FILES.has(file));
   if (meaningful.length === 0) return "workspace_only";
   const hasPackage = Boolean(packageJson && Object.keys(packageJson).length);
-  const hasEntry = normalized.some((file) => /(^|\/)(index\.html?|src\/(main|index|app)\.[cm]?[jt]sx?)$/.test(file));
+  const hasEntry = normalized.some((file) =>
+    /(^|\/)(index\.html?|src\/(main|index|app)\.[cm]?[jt]sx?)$/.test(file)
+      || /(^|\/)(src\/)?app\/(layout|page)\.[cm]?[jt]sx?$/.test(file),
+  );
   const hasSourceDirectory = normalized.some((file) => file.startsWith("src/"));
   const hasConfig = normalized.some((file) => /(^|\/)(vite|next|webpack|tsconfig|angular|svelte)\.config|package\.json$/.test(file));
   if (hasEntry && (hasPackage || hasSourceDirectory || normalized.includes("index.html"))) return "existing_project";

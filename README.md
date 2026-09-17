@@ -14,6 +14,15 @@ figma-context <group> <command>
 
 CLI chuẩn dùng nhóm lệnh: `context`, `design`, `amend`, `foundation`, `evidence`, `review`, `qc`, `util`. Ví dụ: `figma-context amend create`, `figma-context evidence capture`, `figma-context qc plan`. Có thể dùng `--task <project-key>/<task-id>` thay `--context` cho approved context; không dùng hai cờ cùng lúc. Các ví dụ tên lệnh phẳng cũ trong tài liệu vẫn chạy tương thích và trả `meta.warnings`; khi vận hành mới, ưu tiên command tree.
 
+Trên PowerShell hoặc CMD, luôn đặt Figma URL trong dấu nháy khi URL có `&`, `?` hoặc query parameter. Nếu không, shell tách phần sau `&` thành command riêng trước khi CLI nhận được nó:
+
+```powershell
+figma-context design collect `
+  --figma-url "https://www.figma.com/design/<file>/<name>?node-id=1-2&mode=design" `
+  --out <collected.json> `
+  --allow-figma-rest
+```
+
 Lần đầu dùng screenshot capture, cài runtime trong Context Builder:
 
 ```powershell
@@ -256,6 +265,23 @@ Foundation và Implementation cần tối thiểu:
 - Các state quan trọng như menu/modal/tooltip phải có visual-state evidence; shadow/blur/elevation không được tự suy đoán.
 
 Figma frame `1400px` là số đo reference, không tự động có nghĩa CSS `max-width: 1400px`.
+
+### Visual State Sibling
+
+Mỗi Task Context chỉ có một `targetFrame` chính. State cùng màn hình nhưng là sibling trong Figma (menu mở, modal mở) khai báo trong `design.visualStates`: dùng `stateFrameNodeId` cho frame ảnh/state và `effectNodeIds` cho node thật chứa shadow, blur hoặc effect. Builder giữ các node này khi normalize, nên không cần biến state thành target frame thứ hai. `targetNodeId` vẫn được đọc tương thích cho intake cũ.
+
+```json
+{
+  "id": "user-menu-open",
+  "state": "open",
+  "trigger": "click-user-summary",
+  "stateFrameNodeId": "119:2",
+  "effectNodeIds": ["119:10"],
+  "required": true,
+  "requiredEffects": ["DROP_SHADOW"],
+  "referenceImagePath": "D:\\evidence\\Dashboard - Main - menu - open.png"
+}
+```
 
 ## Command Reference
 

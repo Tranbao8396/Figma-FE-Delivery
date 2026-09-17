@@ -94,9 +94,10 @@ function normalizeNode(node, diagnostics, assets) {
 function normalizeDesignArtifact(collected, options = {}) {
   assert(collected && Array.isArray(collected.pages), "Collected design artifact must contain pages");
   const targetNodeId = options.targetNodeId || null;
+  const stateNodeIds = [...new Set((options.stateNodeIds || []).filter((id) => typeof id === "string" && id.trim()))];
   const inputFingerprint = fingerprint(collected);
-  const provenance = { normalizer: "design-normalizer", version: VERSION, inputFingerprint, targetNodeId, status: "current" };
-  if (options.previousArtifact && options.previousArtifact.provenance && options.previousArtifact.provenance.inputFingerprint === inputFingerprint && options.previousArtifact.provenance.targetNodeId === targetNodeId && options.previousArtifact.provenance.version === VERSION) return { artifact: options.previousArtifact, cacheHit: true };
+  const provenance = { normalizer: "design-normalizer", version: VERSION, inputFingerprint, targetNodeId, stateNodeIds, status: "current" };
+  if (options.previousArtifact && options.previousArtifact.provenance && options.previousArtifact.provenance.inputFingerprint === inputFingerprint && options.previousArtifact.provenance.targetNodeId === targetNodeId && JSON.stringify(options.previousArtifact.provenance.stateNodeIds || []) === JSON.stringify(stateNodeIds) && options.previousArtifact.provenance.version === VERSION) return { artifact: options.previousArtifact, cacheHit: true };
 
   const diagnostics = { excludedNodes: 0, summarizedVectors: 0, targetFound: false, sourceKind: collected.kind || "unknown" };
   const assets = [];
@@ -107,11 +108,12 @@ function normalizeDesignArtifact(collected, options = {}) {
       pages = [];
     } else {
       diagnostics.targetFound = true;
+      const stateFrames = stateNodeIds.filter((id) => id !== targetNodeId).map((id) => findTargetFrame(collected.pages, id)).filter((entry) => entry && entry.node).map((entry) => ({ nodeId: entry.node.id, state: "declared_visual_state", viewport: viewport(entry.node), children: [entry.node] }));
       pages = [{
         id: targetNodeId,
         title: target.node.name || targetNodeId,
         category: "target_frame",
-        frames: [{ nodeId: targetNodeId, state: target.frame && target.frame.state || "default", viewport: viewport(target.node) || target.frame && target.frame.viewport || null, children: [target.node] }]
+        frames: [{ nodeId: targetNodeId, state: target.frame && target.frame.state || "default", viewport: viewport(target.node) || target.frame && target.frame.viewport || null, children: [target.node] }, ...stateFrames]
       }];
     }
   }
@@ -142,7 +144,8 @@ function normalizeDesignArtifact(collected, options = {}) {
       routingModel: collected.routingModel || { sharedShell: [] },
       ambiguities: [
         ...(collected.ambiguities || []),
-        ...(targetNodeId && !diagnostics.targetFound ? [{ id: `target-frame-not-found-${targetNodeId}`, topic: "Target frame", impact: "Selected target is absent from collected artifact", decision: "blocker" }] : [])
+        ...(targetNodeId && !diagnostics.targetFound ? [{ id: `target-frame-not-found-${targetNodeId}`, topic: "Target frame", impact: "Selected target is absent from collected artifact", decision: "blocker" }] : []),
+        ...stateNodeIds.filter((id) => !findTargetFrame(collected.pages, id)).map((id) => ({ id: `visual-state-not-found-${id}`, topic: "Visual state", impact: "Declared state node is absent from collected artifact", decision: "blocker" }))
       ],
       provenance,
       diagnostics
